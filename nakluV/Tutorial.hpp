@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PosColVertex.hpp"
+#include "PosNorTexVertex.hpp"
 #include "mat4.hpp"
 #include "RTG.hpp"
 
@@ -23,7 +24,6 @@ struct Tutorial : RTG::Application {
 	VkRenderPass render_pass = VK_NULL_HANDLE;
 
 	//Pipelines:
-
 	struct BackgroundPipeline {
 		// no descriptor set layouts
 		//push constants
@@ -31,6 +31,7 @@ struct Tutorial : RTG::Application {
 			float time;
 		};
 
+		//layout
 		VkPipelineLayout layout = VK_NULL_HANDLE;
 
 		//no vertex bindings
@@ -51,7 +52,9 @@ struct Tutorial : RTG::Application {
 		};
 		static_assert(sizeof(Camera) == 16 * 4, "camera buffer structure is packed");
 
-		//push constants
+		//no push constants
+
+		//layout
 		VkPipelineLayout layout = VK_NULL_HANDLE;
 
 		using Vertex = PosColVertex;
@@ -61,6 +64,40 @@ struct Tutorial : RTG::Application {
 		void create(RTG&, VkRenderPass render_pass, uint32_t subpass);
 		void destroy(RTG&);
 	} lines_pipeline;
+
+	struct ObjectsPipeline {
+		// descriptor set layouts
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
+		VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE;
+		VkDescriptorSetLayout set2_TEXTURE = VK_NULL_HANDLE;
+
+		//types for descriptors
+		struct World {
+			struct { float x, y, z, padding_; } SKY_DIRECTION;
+			struct { float r, g, b, padding_; } SKY_ENERGY;
+			struct { float x, y, z, padding_; } SUN_DIRECTION;
+			struct { float r, g, b, padding_; } SUN_ENERGY;
+		};
+		static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
+		struct Transform {
+			mat4 CLIP_FROM_LOCAL;
+			mat4 WORLD_FROM_LOCAL;
+			mat4 WORLD_FROM_LOCAL_NORMAL;
+		};
+		static_assert(sizeof(Transform) == 16 * 4 * 3, "Transform structure is the expected size");
+
+		//no push constants
+
+		//layout
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+
+		using Vertex = PosNorTexVertex;
+
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG&, VkRenderPass render_pass, uint32_t subpass);
+		void destroy(RTG&);
+	} objects_pipeline;
 
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
@@ -76,11 +113,35 @@ struct Tutorial : RTG::Application {
 		Helpers::AllocatedBuffer Camera_src;
 		Helpers::AllocatedBuffer Camera;
 		VkDescriptorSet Camera_descriptors;
+
+		Helpers::AllocatedBuffer World_src;
+		Helpers::AllocatedBuffer World;
+		VkDescriptorSet World_descriptors;
+
+		//ObjectsPipeline::Transofrms data
+		Helpers::AllocatedBuffer Transforms_src;
+		Helpers::AllocatedBuffer Transforms;
+		VkDescriptorSet Transforms_descriptors;
 	};
 	std::vector< Workspace > workspaces;
 
 	//-------------------------------------------------------------------
 	//static scene resources:
+	Helpers::AllocatedBuffer object_vertices;
+	struct ObjectVertices{
+		uint32_t first = 0;
+		uint32_t count = 0;
+	};
+	// TODO a performant way would be unordered_map<string, ObjectVertices>
+	ObjectVertices plane_vertices;
+	ObjectVertices torus_vertices;
+	ObjectVertices box_vertices;
+
+	std::vector<Helpers::AllocatedImage> textures;
+	std::vector<VkImageView> texture_views;
+	VkSampler texture_sampler = VK_NULL_HANDLE;
+	VkDescriptorPool texture_descriptor_pool = VK_NULL_HANDLE;
+	std::vector<VkDescriptorSet> texture_descriptors;
 
 	//--------------------------------------------------------------------
 	//Resources that change when the swapchain is resized:
@@ -104,6 +165,14 @@ struct Tutorial : RTG::Application {
 	mat4 CLIP_FROM_WORLD;
 
 	std::vector<LinesPipeline::Vertex> lines_vertices;
+	ObjectsPipeline::World world;
+
+	struct ObjectInstance {
+		ObjectVertices vertices;
+		ObjectsPipeline::Transform transform;
+		uint32_t texture = 0;
+	};
+	std::vector<ObjectInstance> object_instances;
 
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:

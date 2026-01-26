@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include "PosNorTexVertex.hpp"
+
 #include <vector>
 
 struct RTG;
@@ -61,8 +63,12 @@ struct Helpers {
 	void transfer_to_buffer(void const *data, size_t size, AllocatedBuffer &target);
 	void transfer_to_image(void const *data, size_t size, AllocatedImage &image); //NOTE: image layout after call is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 
+	VkCommandPool transfer_command_pool = VK_NULL_HANDLE;
+	VkCommandBuffer transfer_command_buffer = VK_NULL_HANDLE;
+
 	//-----------------------
 	//Misc utilities:
+	void emplace_faces(std::vector<PosNorTexVertex>& lists, PosNorTexVertex& _v1, PosNorTexVertex& _v2,PosNorTexVertex& _v3, PosNorTexVertex& _v4);
 
 	//for selecting image formats:
 	VkFormat find_image_format(std::vector< VkFormat > const &candidates, VkImageTiling tiling, VkFormatFeatureFlags features) const;
