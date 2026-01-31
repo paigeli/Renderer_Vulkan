@@ -93,5 +93,47 @@ inline mat4 look_at(
     };
 }
 
+inline mat4 orbit(
+    float target_x, float target_y, float target_z,
+    float azimuth, float elevation, float radius
+) {
+    float ca = std::cos(azimuth);
+    float sa = std::sin(azimuth);
+    float ce = std::cos(elevation);
+    float se = std::sin(elevation);
+
+    // right
+    float right_x = -sa;
+    float right_y = ca;
+    float right_z = 0.0f;
+
+    // up
+    float up_x = -se * ca;
+    float up_y = -se * sa;
+    float up_z = ce;
+
+    // out
+    float out_x = ce * ca;
+    float out_y = ce * sa;
+    float out_z = se;
+
+    // C_at
+    float eye_x = target_x + radius * out_x;
+    float eye_y = target_x + radius * out_y;
+    float eye_z = target_x + radius * out_z;
+
+    // return camera local from world matrix
+    float right_dot_eye = right_x*eye_x + right_y*eye_y + right_z*eye_z;
+    float up_dot_eye = up_x*eye_x + up_y*eye_y + up_z*eye_z;
+    float out_dot_eye = out_x*eye_x + out_y*eye_y + out_z*eye_z;
+
+    return mat4{
+      right_x, up_x, out_x, 0.f,  
+      right_y, up_y, out_y, 0.f,  
+      right_z, up_z, out_z, 0.f,  
+      -right_dot_eye, -up_dot_eye, -out_dot_eye, 1.f,  
+    };
+} 
+
 
 

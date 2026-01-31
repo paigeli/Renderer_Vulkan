@@ -3,6 +3,8 @@
 #include "VK.hpp"
 #include "refsol.hpp"
 
+#include <GLFW/glfw3.h>
+
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -939,9 +941,10 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 void Tutorial::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
-	{//camera orbit the origin;
-		float ang = float(M_PI) * 2.f * 10.f ;
-		// float ang = float(M_PI) * 2.f * 10.f * (time / 60.f);
+	if (camera_mode == CameraMode::Scene) {
+		//camera orbit the origin;
+		//float ang = float(M_PI) * 2.f * 10.f ;
+		float ang = float(M_PI) * 2.f * 10.f * (time / 60.f);
 		CLIP_FROM_WORLD = perspective(
 			60.f * float(M_PI) / 180.f,
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
@@ -952,6 +955,18 @@ void Tutorial::update(float dt) {
 			0.f, 0.f, 0.5f,
 			0.f, 0.f, 1.f
 		);
+	} else if (camera_mode == CameraMode::Free) {
+		CLIP_FROM_WORLD = perspective(
+			free_camera.fov,
+			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
+			free_camera.near,
+			free_camera.far
+		) * orbit(
+			free_camera.target_x, free_camera.target_y, free_camera.target_z,
+			free_camera.azimuth, free_camera.elevation, free_camera.radius
+		);
+	} else {
+		assert(0 && "only two camera modes");
 	}
 
 	{ //static sun and sky:
@@ -1095,5 +1110,93 @@ void Tutorial::update(float dt) {
 }
 
 
-void Tutorial::on_input(InputEvent const &) {
+void Tutorial::on_input(InputEvent const &evt) {
+	//if there is a current action, it gets input priority
+	if (action) {
+		action(evt);
+		return;
+	}
+	//general controls 
+	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_TAB) {
+		//switch camera modes
+		camera_mode = CameraMode((int(camera_mode) + 1) % 2);
+		//std::cout << "CameraMode Updated: " << int(camera_mode) << std::endl;
+		return;
+	}
+
+	if (camera_mode == CameraMode::Free) {
+
+		if(evt.type == InputEvent::MouseWheel) {
+			//change distance by 10% every scroll click:
+			free_camera.radius *= std::exp(std::log(1.1f) * -evt.wheel.y);
+			free_camera.radius = std::max(free_camera.radius, 0.5f * free_camera.near);
+			free_camera.radius = std::min(free_camera.radius, 2.0f * free_camera.far);
+			return;
+		}
+
+		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_LEFT && (evt.button.mods & GLFW_MOD_SHIFT)) {
+			//std::cout << "Panning started." << std::endl;
+			float init_x = evt.button.x;
+			float init_y = evt.button.y;
+			OrbitCamera init_camera = free_camera;
+			action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+				if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+					// cancel upon button lifted:
+					action = nullptr;
+					//std::cout << "Panning ended." << std::endl;
+					return;
+				}
+				if(evt.type == InputEvent::MouseMotion) {
+					//Handle motion
+					float height = 2.f * std::tan(free_camera.fov * 0.5f) * free_camera.radius;
+					float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height * height; //why height not weight
+					float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height * height; 
+					
+					mat4 camera_from_world = orbit(
+							init_camera.target_x, init_camera.target_y, init_camera.target_z,
+							init_camera.azimuth, init_camera.elevation, init_camera.radius);
+					
+					//move distance
+					free_camera.target_x = init_camera.target_x - dx * camera_from_world[0] - dy * camera_from_world[1];
+					free_camera.target_y = init_camera.target_y - dx * camera_from_world[4] - dy * camera_from_world[5];
+					free_camera.target_z = init_camera.target_z - dx * camera_from_world[8] - dy * camera_from_world[9];
+					return;
+				}
+			};
+			
+			return;
+		}
+
+		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+			//std::cout << "Tumble started." << std::endl;
+			float init_x = evt.button.x;
+			float init_y = evt.button.y;
+			OrbitCamera init_camera = free_camera;
+			action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+				if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+					// cancel upon button lifted:
+					action = nullptr;
+					//std::cout << "Tumble ended." << std::endl;
+					return;
+				}
+				if(evt.type == InputEvent::MouseMotion) {
+					//Handle motion
+					float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height; //why height not weight
+					float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height; 
+					//rotate
+					float speed = float(M_PI); //one full height == 180 
+					float flip_x = (std::abs(init_camera.elevation) > 0.5f * float(M_PI) ? -1.0f : 1.0f);
+					free_camera.azimuth = init_camera.azimuth - dx * speed * flip_x;
+					free_camera.elevation = init_camera.elevation - dy * speed;
+					// [-pi. pi]
+					const float twopi = 2.0f * float(M_PI);
+					free_camera.azimuth -= std::round(free_camera.azimuth / twopi) * twopi;
+					free_camera.elevation -= std::round(free_camera.elevation / twopi) * twopi;
+					return;
+				}
+			};
+			
+			return;
+		}
+	}
 }
