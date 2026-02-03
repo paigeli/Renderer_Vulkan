@@ -7,9 +7,9 @@ A real-time renderer using C++ and the Vulkan API. Topics explored will include 
 - the Vulkan SDK
 
 #Usage:
-
+in a vcvars64.bat'd command prompt
 ```
-cd nakluV
+cd code
 node maekfile.js
 bin\main
 
