@@ -172,9 +172,9 @@ struct Tutorial : RTG::Application {
 
 	struct OrbitCamera {
 		float target_x = 0.f, target_y = 0.f, target_z = 0.f;
-		float radius = 2.0f;
-		float azimuth = 0.f;
-		float elevation = 0.25f * float(M_PI);
+		float radius = 3.5f;
+		float azimuth = 0.25f * float(M_PI);
+		float elevation = 0.1f * float(M_PI);
 		float fov = 60.f / 180.f * float(M_PI);
 		float near = 0.1f;
 		float far = 1000.0f;

@@ -19,7 +19,7 @@ void main() {
     // //outColor = vec4(secColor, 1.f);
     // outColor = vec4(finalColor, 1.f);
 
-    outColor = vec4(0.0, 0.0, 0.0, 1.0);
+    //outColor = vec4(0.0, 0.0, 0.0, 1.0);
 
     // const vec2 center = vec2(0.5, 0.5);
     // float dist = distance(position, center);
@@ -45,5 +45,14 @@ void main() {
     // vec3 finalColor = mix(vec3(0.0, 0.1, 0.2), waveColor, intensity);
     // //vec3 finalColor = vec3(intensity, intensity, intensity);
     // outColor = vec4(finalColor, 1.0);
+
+    vec3 lightBlue = vec3(0.6, 0.8, 1.0);  // top
+    vec3 darkBlue  = vec3(0.0, 0.0, 0.3);  // bottom
+
+    // vUV.y = 0 at bottom, 1 at top (adjust depending on your setup)
+    float t = position.y;
+
+    vec3 color = mix(lightBlue, darkBlue, t);
+    outColor = vec4(color, 1.0);
 
 }

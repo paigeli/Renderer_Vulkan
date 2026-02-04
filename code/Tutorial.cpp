@@ -30,7 +30,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 				.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+				.finalLayout = rtg.present_layout,
 			},
 			VkAttachmentDescription { //depth
 			.format = depth_format,
@@ -291,7 +291,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		{//torus
 			torus_vertices.first = uint32_t(vertices.size());
 			// (u,v) u is angle around main axis +z; v is angle around the tube
-			constexpr float R1 = 0.75f;
+			constexpr float R1 = 1.5f;
 			constexpr float R2 = 0.15f;
 			constexpr uint32_t U_STEPS = 20;
 			constexpr uint32_t V_STEPS = 16;
@@ -482,7 +482,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					//float fy = (y + 0.5f) / float(size);
 					for (uint32_t x = 0; x < size; ++x) {
 						//float fx = (x + 0.5f) / float(size);
-						data.emplace_back(0xffbbbbbb);	
+						data.emplace_back(0xffffd700);	
 					}
 				}
 				assert(data.size() == size*size);
@@ -1164,7 +1164,7 @@ void Tutorial::update(float dt) {
 		world.SKY_DIRECTION.y = 0.0f;
 		world.SKY_DIRECTION.z = 1.0f;
 
-		world.SKY_ENERGY.r = 0.5f;
+		world.SKY_ENERGY.r = 0.1f;
 		world.SKY_ENERGY.g = 0.1f;
 		world.SKY_ENERGY.b = 0.2f;
 
@@ -1239,30 +1239,30 @@ void Tutorial::update(float dt) {
 
 	{// make some objects:
 		object_instances.clear();
-		{//plane translated +x by 1
-			mat4 WORLD_FROM_LOCAL{
-				1.0f, 0.0f, 0.0f, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				1.0f, 0.0f, 0.0f, 1.0f,
-			};
+		// {//plane translated +x by 1
+		// 	mat4 WORLD_FROM_LOCAL{
+		// 		1.0f, 0.0f, 0.0f, 0.0f,
+		// 		0.0f, 1.0f, 0.0f, 0.0f,
+		// 		0.0f, 0.0f, 1.0f, 0.0f,
+		// 		1.0f, 0.0f, 0.0f, 1.0f,
+		// 	};
 
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = plane_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
-				},
-				.texture = 1,
-			});
-		}
-		{//box translated +x by -1
+		// 	object_instances.emplace_back(ObjectInstance{
+		// 		.vertices = plane_vertices,
+		// 		.transform{
+		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
+		// 		},
+		// 		.texture = 1,
+		// 	});
+		// }
+		{//box
 			mat4 WORLD_FROM_LOCAL{
-				1.0f, 0.0f, 0.0f, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				-1.0f, 2.5f, 0.0f, 1.0f,
+				0.8f, 0.0f, 0.0f, 0.0f,
+				0.0f, 0.8f, 0.0f, 0.0f,
+				0.0f, 0.0f, 0.8f, 0.0f,
+				0.0f, 0.0f, 0.0f, 1.0f,
 			};
 
 			object_instances.emplace_back(ObjectInstance{
@@ -1275,15 +1275,15 @@ void Tutorial::update(float dt) {
 				.texture = 0,
 			});
 		}
-		{// torus translated -x and rotated CCW around +y
+		{// torus 
 			float ang = time / 60.f * 2.0f * float(M_PI) * 10.0f;
 			float ca = std::cos(ang);
 			float sa = std::sin(ang);
 			mat4 WORLD_FROM_LOCAL{
-				  ca, 0.0f,  -sa, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				  sa, 0.0f,   ca, 0.0f,
-				-1.0f,0.0f, 0.0f, 1.0f,
+				  ca, sa,  0.0f, 0.0f,
+				-sa, ca, 0.0f, 0.0f,
+				0.0f, 0.0f,   1.0f, 0.0f,
+				0.0f,0.0f, 0.0f, 1.0f,
 			};
 
 			object_instances.emplace_back(ObjectInstance{
@@ -1293,6 +1293,7 @@ void Tutorial::update(float dt) {
 					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
 				},
+				.texture = 2,
 			});
 		}
 
