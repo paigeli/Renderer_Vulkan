@@ -14,6 +14,7 @@ struct Tutorial : RTG::Application {
 
 	//kept for use in destructor:
 	RTG &rtg;
+	S72 s72;
 
 	//--------------------------------------------------------------------
 	//Resources that last the lifetime of the application:

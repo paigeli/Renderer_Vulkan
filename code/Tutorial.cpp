@@ -1,6 +1,7 @@
 #include "Tutorial.hpp"
 
 #include "VK.hpp"
+#include "S72.hpp"
 //#include "refsol.hpp"
 
 #include <GLFW/glfw3.h>
@@ -13,6 +14,18 @@
 
 Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 	//refsol::Tutorial_constructor(rtg, &depth_format, &render_pass, &command_pool);
+	//Scene Graph
+	try {
+		s72 = S72::load(rtg.configuration.scene_file);
+	} catch (std::exception &e) {
+		std::cerr << "Failed to load s72-format scene from '" << rtg.configuration.scene_file << "':\n" << e.what() << std::endl;
+	}
+
+	if(rtg.configuration.print){
+		//print out some scene information:
+		rtg.helpers.print_scene_info(s72);
+		rtg.helpers.print_scene_graph(s72);
+	}
 	//select a depth format:
 	depth_format = rtg.helpers.find_image_format(
 		{VK_FORMAT_D32_SFLOAT, VK_FORMAT_X8_D24_UNORM_PACK32},
@@ -333,61 +346,6 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 			}
 
 			torus_vertices.count = uint32_t(vertices.size()) - torus_vertices.first;
-		}
-		{
-			//box
-			box_vertices.first = uint32_t(vertices.size());
-			PosNorTexVertex v1 = (PosNorTexVertex{
-				.Position{.x = -1.f, .y = -1.f, .z = -1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 0.f},
-			});
-			PosNorTexVertex v2 = (PosNorTexVertex{
-				.Position{.x = 1.f, .y = -1.f, .z = -1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 0.f},
-			});
-			PosNorTexVertex v3 = (PosNorTexVertex{
-				.Position{.x = -1.f, .y = 1.f, .z = -1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 1.f},
-			});
-			PosNorTexVertex v4 = (PosNorTexVertex{
-				.Position{.x = 1.f, .y = 1.f, .z = -1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 1.f},
-			});
-			PosNorTexVertex v5 = (PosNorTexVertex{
-				.Position{.x = -1.f, .y = -1.f, .z = 1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 0.f},
-			});
-			PosNorTexVertex v6 = (PosNorTexVertex{
-				.Position{.x = 1.f, .y = -1.f, .z = 1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 0.f},
-			});
-			PosNorTexVertex v7 = (PosNorTexVertex{
-				.Position{.x = -1.f, .y = 1.f, .z = 1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 1.f},
-			});
-			PosNorTexVertex v8 = (PosNorTexVertex{
-				.Position{.x = 1.f, .y = 1.f, .z = 1.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 1.f},
-			});
-
-			
-			rtg.helpers.emplace_faces(vertices, v1, v2, v3, v4);
-			rtg.helpers.emplace_faces(vertices, v5, v6, v7, v8);
-			rtg.helpers.emplace_faces(vertices, v2, v4, v6, v8);
-			rtg.helpers.emplace_faces(vertices, v1, v3, v5, v7);
-			rtg.helpers.emplace_faces(vertices, v1, v2, v5, v6);
-			rtg.helpers.emplace_faces(vertices, v4, v3, v8, v7);
-			
-
-			box_vertices.count = uint32_t(vertices.size()) - box_vertices.first;
 		}
 		
 		size_t bytes = vertices.size() * sizeof(vertices[0]);
@@ -1257,24 +1215,6 @@ void Tutorial::update(float dt) {
 		// 		.texture = 1,
 		// 	});
 		// }
-		{//box
-			mat4 WORLD_FROM_LOCAL{
-				0.8f, 0.0f, 0.0f, 0.0f,
-				0.0f, 0.8f, 0.0f, 0.0f,
-				0.0f, 0.0f, 0.8f, 0.0f,
-				0.0f, 0.0f, 0.0f, 1.0f,
-			};
-
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = box_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
-				},
-				.texture = 0,
-			});
-		}
 		{// torus 
 			float ang = time / 60.f * 2.0f * float(M_PI) * 10.0f;
 			float ca = std::cos(ang);

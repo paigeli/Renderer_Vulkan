@@ -47,6 +47,12 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			surface_extent.height = conv("height");
 		} else if (arg == "--headless") {
 			headless = true;
+		} else if (arg == "--scene") {
+			if (argi + 1 >= argc) throw std::runtime_error("--scene requires a scene file.");
+			argi += 1;
+			scene_file = argv[argi];
+		} else if(arg == "--print"){
+			print = true;
 		} else {
 			throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 		}
@@ -58,6 +64,8 @@ void RTG::Configuration::usage(std::function< void(const char *, const char *) >
 	callback("--physical-device <name>", "Run on the named physical device (guesses, otherwise).");
 	callback("--drawing-size <w> <h>", "Set the size of the surface to draw to.");
 	callback("--headless", "Dont' create a window; read events from stdin");
+	callback("--scene <path/*.s72>", "Specifies the scene(in .s72 format) to view");
+	callback("--print", "Print loaded scene information");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(

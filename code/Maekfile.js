@@ -32,7 +32,10 @@ const main_objs = [
 	maek.CPP('PosNorTexVertex.cpp'),
 	maek.CPP('RTG.cpp'),
 	maek.CPP('Helpers.cpp'),
-	maek.CPP('main.cpp'),
+	maek.CPP("sejp.cpp"),
+	maek.CPP("S72.cpp"),
+	maek.CPP("viewer.cpp"),
+	//maek.CPP('main.cpp'),
 ];
 
 //maek.GLSLC(...) builds a glsl source file:
@@ -73,7 +76,7 @@ main_objs.push( maek.CPP('Tutorial-ObjectsPipeline.cpp', undefined, { depends:[.
 // }
 
 // const main_exe = maek.LINK([...main_objs, ...prebuilt_objs], 'bin/main');
-const main_exe = maek.LINK([...main_objs,], 'bin/main');
+const main_exe = maek.LINK([...main_objs,], 'bin/viewer');
 
 //default targets:
 maek.TARGETS = [main_exe];

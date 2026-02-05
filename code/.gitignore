@@ -1,7 +1,5 @@
 maek-cache.json
 objs/
 spv/
-bin/main
-bin/main.exe
-bin/main.pdb
+bin/
 saves/

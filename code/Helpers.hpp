@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
+#include "S72.hpp"
 
-#include "PosNorTexVertex.hpp"
+#include <vulkan/vulkan_core.h>
 
 #include <vector>
 
@@ -75,7 +75,10 @@ struct Helpers {
 
 	//-----------------------
 	//Misc utilities:
-	void emplace_faces(std::vector<PosNorTexVertex>& lists, PosNorTexVertex& _v1, PosNorTexVertex& _v2,PosNorTexVertex& _v3, PosNorTexVertex& _v4);
+	//scene graph
+	void print_scene_info(S72 &s72);
+	void traverse_children(S72 &s72, S72::Node* node, std::string prefix);
+	void print_scene_graph(S72 &s72);
 
 	//for selecting memory types:
 	VkPhysicalDeviceMemoryProperties memory_properties{};

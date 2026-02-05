@@ -74,8 +74,12 @@ struct RTG {
 		//how many "workspaces" (frames that can currently be being worked on by the CPU or GPU) to use:
 		uint32_t workspaces = 2;
 
-		//run without a window
+		//run without a window --headless
 		bool headless = false;
+		// --scene read .s72 scene file from the path
+		std::string scene_file = "";
+		// --print if true, print scene info
+		bool print = false;
 
 		//for configuration construction + management:
 		Configuration() = default;

@@ -119,8 +119,8 @@ inline mat4 orbit(
 
     // C_at
     float eye_x = target_x + radius * out_x;
-    float eye_y = target_x + radius * out_y;
-    float eye_z = target_x + radius * out_z;
+    float eye_y = target_y + radius * out_y;
+    float eye_z = target_z + radius * out_z;
 
     // return camera local from world matrix
     float right_dot_eye = right_x*eye_x + right_y*eye_y + right_z*eye_z;
@@ -135,5 +135,28 @@ inline mat4 orbit(
     };
 } 
 
+inline mat4 quaternianToMatrix(vec4 quaternian){
+	float x = quaternian[0];
+	float y = quaternian[1];
+	float z = quaternian[2];
+	float w = quaternian[3];
+
+	float m_00 = 1.0f - 2.0f * (y * y + z * z);
+	float m_01 = 2.0f * (x * y - w * z);
+	float m_02 = 2.0f * (x * z + w * y);
+
+	float m_10 = 2.0f * (x * y + w * z);
+	float m_11 = 1.0f - 2.0f * (x * x + z * z);
+	float m_12 = 2.0f * (y * z - w * x);
+
+	float m_20 = 2.0f * (x * z - w * y);
+	float m_21 = 2.0f * (y * z + w * x);
+	float m_22 = 1.0f - 2.0f * (x * x + y * y);
+
+	return mat4{m_00, m_10, m_20, 0.f,
+	            m_01, m_11, m_21, 0.f,
+	            m_02, m_12, m_22, 0.f,
+	            0.f,  0.f,  0.f,  1.f};
+}
 
 
