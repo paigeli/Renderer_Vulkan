@@ -1,7 +1,7 @@
 #pragma once
 
 #include "PosColVertex.hpp"
-#include "PosNorTexVertex.hpp"
+#include "PosNorTanTexVertex.hpp"
 #include "mat4.hpp"
 #include "RTG.hpp"
 
@@ -71,6 +71,7 @@ struct Tutorial : RTG::Application {
 		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
 		VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE;
 		VkDescriptorSetLayout set2_TEXTURE = VK_NULL_HANDLE;
+		VkDescriptorSetLayout set3_Material = VK_NULL_HANDLE;
 
 		//types for descriptors
 		struct World {
@@ -84,15 +85,33 @@ struct Tutorial : RTG::Application {
 			mat4 CLIP_FROM_LOCAL;
 			mat4 WORLD_FROM_LOCAL;
 			mat4 WORLD_FROM_LOCAL_NORMAL;
+			uint32_t MATERIAL_INDEX = 0;
+			uint32_t padding_0 = 0;
+			uint32_t padding_1 = 0;
+			uint32_t padding_2 = 0;
 		};
-		static_assert(sizeof(Transform) == 16 * 4 * 3, "Transform structure is the expected size");
+		static_assert(sizeof(Transform) == 16 * 4 * 3 + 4*4, "Transform structure is the expected size");
+		enum BRDFType : uint32_t {
+			BRDF_LAMBERTIAN,
+			BRDF_PBR,        
+ 			BRDF_MIRROR,      
+			BRDF_ENVIRONMENT,
+		};
+		struct Material {
+			vec4 albedo;
+			BRDFType brdf;
+			uint32_t hasAlbedoTex = 0;
+			uint32_t albedoTexIndex = 0;
+			uint32_t padding_0 = 0;
 
+		};
+		static_assert(sizeof(Material) == 4*4 + 4*4, "Material is the expected size.");
 		//no push constants
 
 		//layout
 		VkPipelineLayout layout = VK_NULL_HANDLE;
 
-		using Vertex = PosNorTexVertex;
+		using Vertex = PosNorTanTexVertex;
 
 		VkPipeline handle = VK_NULL_HANDLE;
 
@@ -122,7 +141,11 @@ struct Tutorial : RTG::Application {
 		//ObjectsPipeline::Transofrms data
 		Helpers::AllocatedBuffer Transforms_src;
 		Helpers::AllocatedBuffer Transforms;
-		VkDescriptorSet Transforms_descriptors;
+		VkDescriptorSet Transforms_descriptors;	
+
+		Helpers::AllocatedBuffer Material_src;
+		Helpers::AllocatedBuffer Material;
+		VkDescriptorSet Material_descriptors;
 	};
 	std::vector< Workspace > workspaces;
 
@@ -133,10 +156,8 @@ struct Tutorial : RTG::Application {
 		uint32_t first = 0;
 		uint32_t count = 0;
 	};
-	// TODO a performant way would be unordered_map<string, ObjectVertices>
-	ObjectVertices plane_vertices;
-	ObjectVertices torus_vertices;
-	ObjectVertices box_vertices;
+	//a performant way would be unordered_map<string, ObjectVertices>
+	std::unordered_map<std::string, ObjectVertices> object_vertices_list;
 
 	std::vector<Helpers::AllocatedImage> textures;
 	std::vector<VkImageView> texture_views;
@@ -185,13 +206,19 @@ struct Tutorial : RTG::Application {
 
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 	ObjectsPipeline::World world;
+	std::vector<ObjectsPipeline::Material> materials;
 
 	struct ObjectInstance {
 		ObjectVertices vertices;
 		ObjectsPipeline::Transform transform;
 		uint32_t texture = 0;
+		std::string material = "";
 	};
 	std::vector<ObjectInstance> object_instances;
+
+	void traverse_children(S72 &s72, S72::Node* node, size_t &instanceIndex, mat4 local_trans, std::vector<ObjectInstance> &objects);
+	void fill_scene_graph(S72 &s72,  std::vector<ObjectInstance> &object_instances);
+	ObjectsPipeline::Transform makeTransform(mat4 clip_from_world, mat4 world_from_local);
 
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:

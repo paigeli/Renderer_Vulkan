@@ -30,6 +30,7 @@ const main_objs = [
 	maek.CPP('Tutorial.cpp'),
 	maek.CPP('PosColVertex.cpp'),
 	maek.CPP('PosNorTexVertex.cpp'),
+	maek.CPP('PosNorTanTexVertex.cpp'),
 	maek.CPP('RTG.cpp'),
 	maek.CPP('Helpers.cpp'),
 	maek.CPP("sejp.cpp"),
@@ -118,7 +119,7 @@ function custom_flags_and_rules() {
 		maek.options.LINK = ['link.exe', '/nologo', '/SUBSYSTEM:CONSOLE', '/DEBUG:FASTLINK', '/INCREMENTAL:NO'];
 
 		maek.options.CPPFlags = [
-			'/O2',
+			// '/O2',
 			'/D_USE_MATH_DEFINES', //we would like M_PI to be defined
 			'/wd4100', //unused formal parameter
 			'/wd4201', //nameless struct/union

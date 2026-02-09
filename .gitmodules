@@ -1,3 +1,6 @@
 [submodule "external"]
 	path = code/external/stb_image
 	url = https://github.com/nothings/stb.git
+[submodule "code/external/GLM"]
+	path = code/external/GLM
+	url = https://github.com/g-truc/glm.git

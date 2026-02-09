@@ -6,6 +6,9 @@
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan.h>
 
+#include "mat4.hpp"
+
+
 #include <limits>
 #include <optional>
 #include <string>
@@ -35,8 +38,8 @@
 
 struct S72 {
 	//NOTE: redefine these for your vector and quaternion types of choice:
-	using vec3 = struct vec3_internal{ float x, y, z; };
-	using quat = struct quat_internal{ float x, y, z, w; };
+	using vec3 = glm::vec3;
+	using quat = glm::quat; // w, x, y, z
 	using color = struct color_internal{ float r, g, b; };
 
 	//-------------------------------------------------
@@ -78,9 +81,9 @@ struct S72 {
 	struct Node {
 		std::string name;
 
-		vec3 translation = vec3{ .x = 0.0f, .y = 0.0f, .z = 0.0f };
-		quat rotation = quat{ .x = 0.0f, .y = 0.0f, .z = 0.0f, .w = 1.0f };
-		vec3 scale = vec3{ .x = 1.0f, .y = 1.0f, .z = 1.0f };
+		vec3 translation{0.0f, 0.0f, 0.0f };
+		quat rotation{0.0f, 0.0f, 0.0f, 1.0f};
+		vec3 scale{1.0f, 1.0f, 1.0f};
 
 		std::vector< Node * > children;
 

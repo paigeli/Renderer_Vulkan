@@ -4,10 +4,6 @@
 #include "Tutorial.hpp"
 
 #include <iostream>
-#include <cstring>
-#include <cassert>
-#include <string>
-#include <fstream>
 
 int main(int argc, char **argv) {
 	//main wrapped in a try-catch so we can print some debug info about uncaught exceptions:

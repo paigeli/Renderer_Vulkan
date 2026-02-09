@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <fstream>
 
 Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 	//refsol::Tutorial_constructor(rtg, &depth_format, &render_pass, &command_pool);
@@ -126,14 +127,14 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-				.descriptorCount = 1 * per_workspace,
+				.descriptorCount = 2 * per_workspace,
 			},
 		};
 
 		VkDescriptorPoolCreateInfo create_info {
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.flags = 0,
-			.maxSets = 3 * per_workspace,
+			.maxSets = 4 * per_workspace,
 			.poolSizeCount = uint32_t(pool_sizes.size()),
 			.pPoolSizes = pool_sizes.data(),
 		};
@@ -217,7 +218,42 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 				VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.World_descriptors));
 			}
-		}		
+		}	
+		
+		{//Material
+			// for (auto const &pair : s72.materials) {
+
+			// }
+			// materials.emplace_back(ObjectsPipeline::Material{
+			// 	.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
+			// 	.albedo = vec3(1.0f, 0.0f, 0.0f), // test red color
+			// });
+			// size_t bytes = materials.size() * sizeof(materials[0]);
+			workspace.Material_src = rtg.helpers.create_buffer(
+					sizeof(ObjectsPipeline::Material) * 1,
+					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					Helpers::Mapped
+			);
+
+			workspace.Material = rtg.helpers.create_buffer(
+				sizeof(ObjectsPipeline::Material) * 1,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				Helpers::Unmapped
+			);
+
+			// rtg.helpers.transfer_to_buffer(materials.data(), bytes, Material);
+
+			VkDescriptorSetAllocateInfo alloc_info {
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+				.descriptorPool = descriptor_pool,
+				.descriptorSetCount = 1,
+				.pSetLayouts = &objects_pipeline.set3_Material,
+			};
+
+			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Material_descriptors));
+		}
 
 		//descriptor write
 		{
@@ -232,7 +268,13 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					.range = workspace.World.size,
 			};
 
-			std::array<VkWriteDescriptorSet, 2> writes{
+			VkDescriptorBufferInfo Material_info{
+				.buffer = workspace.Material.handle,
+				.offset = 0,
+				.range = workspace.Material.size,
+			};
+
+			std::array<VkWriteDescriptorSet, 3> writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -251,6 +293,15 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 					.pBufferInfo = &World_info,
 				},
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.Material_descriptors,
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &Material_info,
+				},
 			};
 
 			vkUpdateDescriptorSets(
@@ -262,90 +313,66 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 			);
 		}
 	}
-	{//objects
-		std::vector< PosNorTexVertex > vertices;
-		{
-			//more interesting geometry
-			plane_vertices.first = uint32_t(vertices.size());
-			vertices.emplace_back(PosNorTexVertex{
-				.Position{.x = -1.f, .y = -1.f, .z = 0.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 0.f},
-			});
-			vertices.emplace_back(PosNorTexVertex{
-				.Position{.x = 1.f, .y = -1.f, .z = 0.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 0.f},
-			});
-			vertices.emplace_back(PosNorTexVertex{
-				.Position{.x = -1.f, .y = 1.f, .z = 0.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 1.f},
-			});
-			vertices.emplace_back(PosNorTexVertex{
-				.Position{.x = 1.f, .y = 1.f, .z = 0.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 1.f},
-			});
-			// maybe for future box extent z
-			vertices.emplace_back(PosNorTexVertex{
-				.Position{.x = -1.f, .y = 1.f, .z = 0.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 0.f, .t = 1.f},
-			});
-			vertices.emplace_back(PosNorTexVertex{
-				.Position{.x = 1.f, .y = -1.f, .z = 0.f},
-				.Normal{.x = 0.f, .y = 0.f, .z = 1.f},
-				.TexCoord{.s = 1.f, .t = 0.f},
-			});
 
-			plane_vertices.count = uint32_t(vertices.size()) - plane_vertices.first;
-		}
-		{//torus
-			torus_vertices.first = uint32_t(vertices.size());
-			// (u,v) u is angle around main axis +z; v is angle around the tube
-			constexpr float R1 = 1.5f;
-			constexpr float R2 = 0.15f;
-			constexpr uint32_t U_STEPS = 20;
-			constexpr uint32_t V_STEPS = 16;
-			constexpr float V_REPEATS = 2.0f;
-			constexpr float U_REPEATS = int(V_REPEATS / R2 * R1 + 0.999f); // approx sqaure and round up
+	{		//Material
+			// for (auto const &pair : s72.materials) {
 
-			auto emplace_vertex = [&](uint32_t ui, uint32_t vi) {
-				// steps to angles
-				float ua = (ui % U_STEPS) / float(U_STEPS) * 2.0f * float(M_PI);
-				float va = (vi % V_STEPS) / float(V_STEPS) * 2.0f * float(M_PI);
+			// }
+		materials.emplace_back(ObjectsPipeline::Material{
+			.albedo = vec4(1.0f, 0.0f, 0.0f, 0.0f), // test red color
+			.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
+		});
+			// size_t bytes = materials.size() * sizeof(materials[0]);
 
-				vertices.emplace_back(PosNorTexVertex{
-					.Position{
-						.x = (R1 + R2 * std::cos(va)) * std::cos(ua), 
-						.y = (R1 + R2 * std::cos(va)) * std::sin(ua), 
-						.z = R2 * std::sin(va),
-					},
-					.Normal{
-						.x = std::cos(va) * std::cos(ua), 
-						.y = std::cos(va) * std::sin(ua), 
-						.z = R2 * std::sin(va),
-					},
-					.TexCoord{
-						.s = ui / float(U_STEPS) * U_REPEATS, 
-						.t = vi / float(V_STEPS) * V_REPEATS,
-					},
-				});
+	}
+
+	{ //objects
+		std::vector< PosNorTanTexVertex > vertices;
+		uint32_t first_offset = 0;
+		for (auto const &pair : s72.meshes) {
+			const std::string& mesh_name = pair.first;
+        	const S72::Mesh&   mesh      = pair.second;
+			ObjectVertices obj_vertices{
+				.first = first_offset,
+				.count = mesh.count,
 			};
-
-			for(uint32_t ui = 0; ui < U_STEPS; ++ui) {
-				for(uint32_t vi = 0; vi < V_STEPS; ++vi) {
-					emplace_vertex(ui, vi);
-					emplace_vertex(ui+1, vi);
-					emplace_vertex(ui, vi+1);
-					emplace_vertex(ui, vi+1);
-					emplace_vertex(ui+1, vi);
-					emplace_vertex(ui+1, vi+1);
+			std::cout << "Parsing mesh: " << mesh_name << std::endl;
+			//read attributes
+			auto getAttribute = [&mesh](const std::string& _name) -> const S72::Mesh::Attribute& {
+				auto it = mesh.attributes.find(_name);
+				if (it != mesh.attributes.end()) {
+					return it->second;
+				} else {
+					throw std::runtime_error("Attribute not found: " + mesh.name + ": " +  _name);
 				}
+			};
+			const auto& position = getAttribute("POSITION");
+			// S72::Mesh::Attribute normal = mesh.attributes["NORMAL"];
+			// S72::Mesh::Attribute tangent = mesh.attributes["TANGENT"];
+			// S72::Mesh::Attribute texCoord = mesh.attributes["TEXCOORD"];
+			std::ifstream in(position.src.path, std::ios::binary);
+			if (!in) throw std::runtime_error("Failed to open data file: " + position.src.path);
+			//std::cout << "position info" << position.src.path << " stride: " << position.stride << position.offset << std::endl;
+			for (uint32_t i = 0; i < mesh.count; ++i) {
+				vertices.emplace_back(); 
+				assert(vertices.size() == (first_offset + i + 1));
+				PosNorTanTexVertex& v = vertices[first_offset + i];
+				// POSITION: R32G32B32_SFLOAT, offset 0, stride 48 (example)
+				in.seekg(i * position.stride + position.offset, std::ios::beg);
+				in.read(reinterpret_cast<char*>(&v.Position), sizeof(v.Position));
+				//std::cout << "Vertex " << i << " position: " << v.Position.x << v.Position.y << v.Position.z << std::endl;
+				// NORMAL
+				// in.seekg(i * normal.stride + normal.offset, std::ios::beg);
+				in.read(reinterpret_cast<char*>(&v.Normal), sizeof(v.Normal));
+				// TANGENT: R32G32B32A32_SFLOAT, offset 24, stride 48
+				// in.seekg(i * tangent.stride + tangent.offset, std::ios::beg);
+				in.read(reinterpret_cast<char*>(&v.Tangent), sizeof(v.Tangent));
+				// TEXCOORD: R32G32_SFLOAT, offset 40, stride 48
+				// in.seekg(i * texCoord.stride + texCoord.offset, std::ios::beg);
+				in.read(reinterpret_cast<char*>(&v.TexCoord), sizeof(v.TexCoord));
 			}
-
-			torus_vertices.count = uint32_t(vertices.size()) - torus_vertices.first;
+			first_offset += mesh.count;
+			object_vertices_list.emplace(mesh_name, obj_vertices); 
 		}
 		
 		size_t bytes = vertices.size() * sizeof(vertices[0]);
@@ -644,7 +671,12 @@ Tutorial::~Tutorial() {
 		if(workspace.Transforms.handle != VK_NULL_HANDLE) {
 			rtg.helpers.destroy_buffer(std::move(workspace.Transforms));
 		}
-
+		if(workspace.Material_src.handle != VK_NULL_HANDLE) {
+			rtg.helpers.destroy_buffer(std::move(workspace.Material_src));
+		}
+		if(workspace.Material.handle != VK_NULL_HANDLE) {
+			rtg.helpers.destroy_buffer(std::move(workspace.Material));
+		}
 	}
 	workspaces.clear();
 
@@ -822,7 +854,7 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	{ //upload world info:
-		assert(workspace.Camera_src.size == sizeof(world)); //TODO:Check werid
+		assert(workspace.World_src.size == sizeof(world)); //TODO:Check werid
 
 		//host-side copy into World_src:
 		memcpy(workspace.World_src.allocation.data(), &world, sizeof(world));
@@ -835,6 +867,22 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			.size = workspace.World_src.size,
 		};
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
+	}
+
+	{//update material info
+		assert(workspace.Material_src.size == materials.size() * sizeof(ObjectsPipeline::Material)); //TODO:Check werid
+
+		//host-side copy into Material_src:
+		memcpy(workspace.Material_src.allocation.data(), &workspace.Material, sizeof(workspace.Material));
+
+		//add device-side copy from Material_src -> Material:
+		assert(workspace.Material_src.size == workspace.Material.size);
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = workspace.Material_src.size,
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.Material_src.handle, workspace.Material.handle, 1, &copy_region);
 	}
 
 	if (!object_instances.empty()) {
@@ -1019,9 +1067,10 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				}
 				//Camera descriptor set is still bond but unused
 				{//bind transform descriptor
-					std::array<VkDescriptorSet, 2> descriptor_sets{
+					std::array<VkDescriptorSet, 3> descriptor_sets{
 						workspace.World_descriptors,
 						workspace.Transforms_descriptors,
+						workspace.Material_descriptors,
 					};
 					vkCmdBindDescriptorSets(
 						workspace.command_buffer,
@@ -1039,7 +1088,7 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 						workspace.command_buffer,
 						VK_PIPELINE_BIND_POINT_GRAPHICS,
 						objects_pipeline.layout,
-						2, //second set
+						3, //second set
 						1, &texture_descriptors[inst.texture],
 						0, nullptr //dynamic offsets count, ptr
 					);
@@ -1093,23 +1142,23 @@ void Tutorial::update(float dt) {
 		//camera orbit the origin;
 		//float ang = float(M_PI) * 2.f * 10.f ;
 		float ang = float(M_PI) * 2.f * 10.f * (time / 60.f);
-		CLIP_FROM_WORLD = perspective(
+		CLIP_FROM_WORLD = vulkan_perspective(
 			60.f * float(M_PI) / 180.f,
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
 			0.1f,
 			1000.f
-		) * look_at(
+		) * vulkan_look_at(
 			5.0f * std::cos(ang), 5.0f*std::sin(ang), 3.0f,
 			0.f, 0.f, 0.5f,
 			0.f, 0.f, 1.f
 		);
 	} else if (camera_mode == CameraMode::Free) {
-		CLIP_FROM_WORLD = perspective(
+		CLIP_FROM_WORLD = vulkan_perspective(
 			free_camera.fov,
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
 			free_camera.near,
 			free_camera.far
-		) * orbit(
+		) * vulkan_orbit(
 			free_camera.target_x, free_camera.target_y, free_camera.target_z,
 			free_camera.azimuth, free_camera.elevation, free_camera.radius
 		);
@@ -1198,45 +1247,25 @@ void Tutorial::update(float dt) {
 	{// make some objects:
 		object_instances.clear();
 		// {//plane translated +x by 1
-		// 	mat4 WORLD_FROM_LOCAL{
-		// 		1.0f, 0.0f, 0.0f, 0.0f,
-		// 		0.0f, 1.0f, 0.0f, 0.0f,
-		// 		0.0f, 0.0f, 1.0f, 0.0f,
-		// 		1.0f, 0.0f, 0.0f, 1.0f,
-		// 	};
+		// mat4 WORLD_FROM_LOCAL{
+		// 	1.0f, 0.0f, 0.0f, 0.0f,
+		// 	0.0f, 1.0f, 0.0f, 0.0f,
+		// 	0.0f, 0.0f, 1.0f, 0.0f,
+		// 	0.0f, 0.0f, 0.0f, 1.0f,
+		// };
 
+		// for (auto const& pair : object_vertices_list) {
 		// 	object_instances.emplace_back(ObjectInstance{
-		// 		.vertices = plane_vertices,
+		// 		.vertices = pair.second,
 		// 		.transform{
 		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
 		// 		},
-		// 		.texture = 1,
 		// 	});
 		// }
-		{// torus 
-			float ang = time / 60.f * 2.0f * float(M_PI) * 10.0f;
-			float ca = std::cos(ang);
-			float sa = std::sin(ang);
-			mat4 WORLD_FROM_LOCAL{
-				  ca, sa,  0.0f, 0.0f,
-				-sa, ca, 0.0f, 0.0f,
-				0.0f, 0.0f,   1.0f, 0.0f,
-				0.0f,0.0f, 0.0f, 1.0f,
-			};
 
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = torus_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-				.texture = 2,
-			});
-		}
-
+		fill_scene_graph(s72, object_instances);
 	}
 }
 
@@ -1283,14 +1312,14 @@ void Tutorial::on_input(InputEvent const &evt) {
 					float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height * height; //why height not weight
 					float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height * height; 
 					
-					mat4 camera_from_world = orbit(
+					mat4 camera_from_world = vulkan_orbit(
 							init_camera.target_x, init_camera.target_y, init_camera.target_z,
 							init_camera.azimuth, init_camera.elevation, init_camera.radius);
 					
 					//move distance
-					free_camera.target_x = init_camera.target_x - dx * camera_from_world[0] - dy * camera_from_world[1];
-					free_camera.target_y = init_camera.target_y - dx * camera_from_world[4] - dy * camera_from_world[5];
-					free_camera.target_z = init_camera.target_z - dx * camera_from_world[8] - dy * camera_from_world[9];
+					free_camera.target_x = init_camera.target_x - dx * camera_from_world[0][0] - dy * camera_from_world[0][1];
+					free_camera.target_y = init_camera.target_y - dx * camera_from_world[1][0] - dy * camera_from_world[1][1];
+					free_camera.target_z = init_camera.target_z - dx * camera_from_world[2][0] - dy * camera_from_world[2][1];
 					return;
 				}
 			};
@@ -1330,4 +1359,60 @@ void Tutorial::on_input(InputEvent const &evt) {
 			return;
 		}
 	}
+}
+
+
+void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 local_trans, std::vector<ObjectInstance> &objects){
+	//Print node information
+	if(node->camera != nullptr){
+		// std::cout << "Camera: " << node->camera->name;
+	}
+	if(node->mesh != nullptr){
+		//std::cout << "Mesh: " << node->mesh->name;
+		//make objectvertices
+		auto it = object_vertices_list.find(node->mesh->name);
+		if (it == object_vertices_list.end()) throw std::runtime_error("Failed to find the mesh in object vertices list");
+		ObjectInstance obj = ObjectInstance{
+			.vertices = it->second,
+			.transform = makeTransform(CLIP_FROM_WORLD, local_trans),
+		};
+		objects.emplace_back(obj);
+		id++;
+		if(node->mesh->material != nullptr){
+
+			objects.back().material = node->mesh->material->name;
+			//std::cout << " {Material: " <<node->mesh->material->name << "}";
+		}
+	}
+	if(node->environment != nullptr){
+		// std::cout << "Environment: " << node->environment->name;
+	}
+	if(node->light != nullptr){
+		// std::cout << "Light: " << node->light->name;
+	}
+	for(S72::Node* child : node->children){
+		mat4 new_trans = local_trans * glm::translate(glm::mat4(1.f), child->translation) * glm::toMat4(child->rotation) * glm::scale(glm::mat4(1.0f), child->scale); // TRS
+		traverse_children(_s72, child, id, new_trans, objects);
+	}
+}
+
+void Tutorial::fill_scene_graph(S72 &_s72, std::vector<ObjectInstance> &objects){
+	size_t instanceId = 0;
+	for (S72::Node* root : _s72.scene.roots) {
+		mat4 local_trans = glm::translate(glm::mat4(1.f), root->translation) * glm::toMat4(root->rotation) * glm::scale(glm::mat4(1.0f), root->scale); // TRS
+		traverse_children(_s72, root, instanceId, local_trans, objects);
+	}
+	// std::cout << "Print Objects Materials" << std::endl;
+	// for (auto obj : objects) {
+	// 	std::cout << "--" << obj.material << std::endl;
+	// }
+}
+
+Tutorial::ObjectsPipeline::Transform Tutorial::makeTransform(mat4 clip_from_world, mat4 world_from_local) {
+	return ObjectsPipeline::Transform {
+		.CLIP_FROM_LOCAL = clip_from_world * world_from_local,
+		.WORLD_FROM_LOCAL = world_from_local,
+		.WORLD_FROM_LOCAL_NORMAL = world_from_local, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
+		.MATERIAL_INDEX = 0,
+	};
 }

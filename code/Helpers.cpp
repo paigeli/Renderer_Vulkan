@@ -392,6 +392,18 @@ void Helpers::print_scene_info(S72 &s72){
 		std::cout << pair.first << ", ";
 	}
 	std::cout << std::endl;
+
+	std::cout << "DataFiles: ";
+	for (auto const& pair : s72.data_files) {
+		std::cout << pair.first << ", ";
+	}
+	std::cout << std::endl;
+
+	std::cout << "Textures: ";
+	for (auto const& pair : s72.textures) {
+		std::cout << pair.first << ", ";
+	}
+	std::cout << std::endl;
 }
 
 void Helpers::traverse_children(S72 &s72, S72::Node* node, std::string prefix){
@@ -420,6 +432,7 @@ void Helpers::traverse_children(S72 &s72, S72::Node* node, std::string prefix){
 		traverse_children(s72, child, new_prefix);
 	}
 }
+
 void Helpers::print_scene_graph(S72 &s72){
 	std::cout << std::endl << "--- Scene Graph ---"<< std::endl;
 	for (S72::Node* root : s72.scene.roots) {

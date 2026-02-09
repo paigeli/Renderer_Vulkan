@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Build (node maekfile.js) and Launch viewer.exe",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\code\\bin\\viewer.exe",
+      "args": [
+        "--scene",
+        "report\\example_scene\\example.s72",
+        "--print"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+
+      // run the COMSPEC /k "vcvars64.bat" && node maekfile.js part first
+      //"preLaunchTask": "build-with-node"
+    }
+  ],
+
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build-with-node",
+        "type": "shell",
+        "command": "%comspec%",
+        "args": [
+          "/k",
+          "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\"",
+          "&&",
+          "node",
+          "code\\maekfile.js"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder}"
+        },
+        "problemMatcher": []
+      }
+    ]
+  }
+}

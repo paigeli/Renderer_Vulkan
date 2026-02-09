@@ -339,11 +339,11 @@ S72 S72::load(std::string const &scene_file) {
 			if (auto f = object.find("translation"); f != object.end()) {
 				try {
 					std::vector< sejp::value > const &vec = f->second.as_array().value();
-					node.translation = vec3{
-						.x = float(vec.at(0).as_number().value()),
-						.y = float(vec.at(1).as_number().value()),
-						.z = float(vec.at(2).as_number().value()),
-					};
+					node.translation = vec3(
+						float(vec.at(0).as_number().value()),
+						float(vec.at(1).as_number().value()),
+						float(vec.at(2).as_number().value())
+					);
 					if (vec.size() != 3) throw std::runtime_error("trailing values");
 				} catch (std::exception &) {
 					throw std::runtime_error("Node \"" + name + "\"'s translation should be an array of three numbers.");
@@ -354,12 +354,12 @@ S72 S72::load(std::string const &scene_file) {
 			if (auto f = object.find("rotation"); f != object.end()) {
 				try {
 					std::vector< sejp::value > const &vec = f->second.as_array().value();
-					node.rotation = quat{
-						.x = float(vec.at(0).as_number().value()),
-						.y = float(vec.at(1).as_number().value()),
-						.z = float(vec.at(2).as_number().value()),
-						.w = float(vec.at(3).as_number().value()),
-					};
+					node.rotation = quat(
+						float(vec.at(3).as_number().value()),
+						float(vec.at(0).as_number().value()),
+						float(vec.at(1).as_number().value()),
+						float(vec.at(2).as_number().value())
+					);
 					if (vec.size() != 4) throw std::runtime_error("trailing values");
 				} catch (std::exception &) {
 					throw std::runtime_error("Node \"" + name + "\"'s rotation should be an array of four numbers.");
@@ -370,11 +370,11 @@ S72 S72::load(std::string const &scene_file) {
 			if (auto f = object.find("scale"); f != object.end()) {
 				try {
 					std::vector< sejp::value > const &vec = f->second.as_array().value();
-					node.scale = vec3{
-						.x = float(vec.at(0).as_number().value()),
-						.y = float(vec.at(1).as_number().value()),
-						.z = float(vec.at(2).as_number().value()),
-					};
+					node.scale = vec3(
+						float(vec.at(0).as_number().value()),
+						float(vec.at(1).as_number().value()),
+						float(vec.at(2).as_number().value())
+					);
 					if (vec.size() != 3) throw std::runtime_error("trailing values");
 				} catch (std::exception &) {
 					throw std::runtime_error("Node \"" + name + "\"'s scale should be an array of three numbers.");
