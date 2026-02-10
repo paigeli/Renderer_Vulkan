@@ -190,6 +190,7 @@ struct Tutorial : RTG::Application {
 		Scene = 0,
 		Free = 1,
 		Debug = 2,
+		CameraMode_Count,
 	} camera_mode = CameraMode::Free;
 
 	S72::Camera* cur_scene_camera = nullptr;
@@ -203,6 +204,18 @@ struct Tutorial : RTG::Application {
 		float near = 0.1f;
 		float far = 1000.0f;
 	} free_camera;
+
+	struct UserCamera {
+		float fov = 60.f / 180.f * float(M_PI);
+		float near = 0.1f;
+		float far = 1000.0f;
+		vec3 translation = vec3(0.f, 0.f, 5.f);
+		vec3 rotation = vec3(0.f); //radians
+		//scale by defaut is 1
+	};
+	
+	UserCamera user_camera;
+	UserCamera debug_camera;
 
 	mat4 CLIP_FROM_WORLD;
 

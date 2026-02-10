@@ -8,9 +8,10 @@
       "program": "${workspaceFolder}\\code\\bin\\viewer.exe",
       "args": [
         "--scene",
-        "report\\examples\\sg-Support.s72",
+        "report\\examples\\sg-Articulation.s72",
         "--camera",
-        "Long-Camera"
+        "Arm-Camera",
+        "--print"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",

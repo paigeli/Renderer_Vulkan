@@ -38,6 +38,21 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		}
 	}
 
+	{
+		world.SKY_ENERGY.r = 0.0f;
+		world.SKY_ENERGY.g = 0.0f;
+		world.SKY_ENERGY.b = 0.0f;
+		// world.SKY_DIRECTION.x = 0.0f;
+		// world.SKY_DIRECTION.y = 0.0f;
+		// world.SKY_DIRECTION.z = 1.0f;
+		world.SUN_ENERGY.r = 0.0f;
+		world.SUN_ENERGY.g = 0.0f;
+		world.SUN_ENERGY.b = 0.0f;
+		// world.SUN_DIRECTION.x = 0.0f;
+		// world.SUN_DIRECTION.y = 0.0f;
+		// world.SUN_DIRECTION.z = 1.0f;
+	}
+
 	//select a depth format:
 	depth_format = rtg.helpers.find_image_format(
 		{VK_FORMAT_D32_SFLOAT, VK_FORMAT_X8_D24_UNORM_PACK32},
@@ -1169,25 +1184,7 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 void Tutorial::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
-	{// make some objects:
-		object_instances.clear();
-		fill_scene_graph(s72, object_instances);
-	}
-
 	if (camera_mode == CameraMode::Scene) {
-		//camera orbit the origin;
-		//float ang = float(M_PI) * 2.f * 10.f ;
-		// float ang = float(M_PI) * 2.f * 10.f * (time / 60.f);
-		// CLIP_FROM_WORLD = vulkan_perspective(
-		// 	60.f * float(M_PI) / 180.f,
-		// 	rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
-		// 	0.1f,
-		// 	1000.f
-		// ) * vulkan_look_at(
-		// 	5.0f * std::cos(ang), 5.0f*std::sin(ang), 3.0f,
-		// 	0.f, 0.f, 0.5f,
-		// 	0.f, 0.f, 1.f
-		// );
 		assert(cur_scene_camera);
 		if(auto* perspective_params = std::get_if<S72::Camera::Perspective>(&cur_scene_camera->projection)) {
 			mat4 proj = vulkan_perspective(
@@ -1201,8 +1198,6 @@ void Tutorial::update(float dt) {
 		} else {
 			throw std::runtime_error("Failed to get Scene Camera Params");
 		}
-		
-		
 	} else if (camera_mode == CameraMode::Free) {
 		CLIP_FROM_WORLD = vulkan_perspective(
 			free_camera.fov,
@@ -1213,20 +1208,26 @@ void Tutorial::update(float dt) {
 			free_camera.target_x, free_camera.target_y, free_camera.target_z,
 			free_camera.azimuth, free_camera.elevation, free_camera.radius
 		);
+	} else if (camera_mode == CameraMode::Debug) {
+		mat4 proj = vulkan_perspective(
+		debug_camera.fov,
+		rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
+		debug_camera.near,
+		debug_camera.far);
+ 		mat4 transform = glm::translate(glm::mat4(1.f), debug_camera.translation);
+		// Apply Rotation (Order matters: Y -> X -> Z is standard for cameras/objects)
+		transform = glm::rotate(transform, debug_camera.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f)); // Yaw
+		transform = glm::rotate(transform, debug_camera.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f)); // Pitch
+		transform = glm::rotate(transform, debug_camera.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)); // Roll
+		mat4 view = glm::inverse(transform);
+		CLIP_FROM_WORLD = proj * view;
 	} else {
 		assert(0 && "only two camera modes");
 	}
 
-	{ //static sun and sky:
-		assert(s72.lights.size() >= 1);
-		
-		world.SKY_DIRECTION.x = 0.0f;
-		world.SKY_DIRECTION.y = 0.0f;
-		world.SKY_DIRECTION.z = 1.0f;
-
-		world.SKY_ENERGY.r = 0.1f;
-		world.SKY_ENERGY.g = 0.1f;
-		world.SKY_ENERGY.b = 0.2f;
+	{// make some objects:
+		object_instances.clear();
+		fill_scene_graph(s72, object_instances);
 	}
 
 	lines_vertices.clear();
@@ -1302,8 +1303,20 @@ void Tutorial::on_input(InputEvent const &evt) {
 	//general controls 
 	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_TAB) {
 		//switch camera modes
-		camera_mode = CameraMode((int(camera_mode) + 1) % 2);
+		camera_mode = CameraMode((int(camera_mode) + 1) % uint8_t(CameraMode::CameraMode_Count));
 		//std::cout << "CameraMode Updated: " << int(camera_mode) << std::endl;
+		return;
+	}
+
+	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_RIGHT) {
+		//cycle scene camera 
+		auto it = s72.cameras.find(cur_scene_camera->name);
+		assert(it != s72.cameras.end());
+		++it;
+		if (it == s72.cameras.end())
+			it = s72.cameras.begin();
+		cur_scene_camera = &it->second;
+		//std::cout << "Current Scene Camera Updated: " <<  << std::endl;
 		return;
 	}
 
@@ -1382,6 +1395,82 @@ void Tutorial::on_input(InputEvent const &evt) {
 			return;
 		}
 	}
+
+		if (camera_mode == CameraMode::Debug) {
+
+		if(evt.type == InputEvent::MouseWheel) {
+			// //change distance by 10% every scroll click:
+			// free_camera.radius *= std::exp(std::log(1.1f) * -evt.wheel.y);
+			// free_camera.radius = std::max(free_camera.radius, 0.5f * free_camera.near);
+			// free_camera.radius = std::min(free_camera.radius, 2.0f * free_camera.far);
+			return;
+		}
+
+		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_LEFT && (evt.button.mods & GLFW_MOD_SHIFT)) {
+			// //std::cout << "Panning started." << std::endl;
+			// float init_x = evt.button.x;
+			// float init_y = evt.button.y;
+			// OrbitCamera init_camera = free_camera;
+			// action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+			// 	if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+			// 		// cancel upon button lifted:
+			// 		action = nullptr;
+			// 		//std::cout << "Panning ended." << std::endl;
+			// 		return;
+			// 	}
+			// 	if(evt.type == InputEvent::MouseMotion) {
+			// 		//Handle motion
+			// 		float height = 2.f * std::tan(free_camera.fov * 0.5f) * free_camera.radius;
+			// 		float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height * height; //why height not weight
+			// 		float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height * height; 
+					
+			// 		mat4 camera_from_world = vulkan_orbit(
+			// 				init_camera.target_x, init_camera.target_y, init_camera.target_z,
+			// 				init_camera.azimuth, init_camera.elevation, init_camera.radius);
+					
+			// 		//move distance
+			// 		free_camera.target_x = init_camera.target_x - dx * camera_from_world[0][0] - dy * camera_from_world[0][1];
+			// 		free_camera.target_y = init_camera.target_y - dx * camera_from_world[1][0] - dy * camera_from_world[1][1];
+			// 		free_camera.target_z = init_camera.target_z - dx * camera_from_world[2][0] - dy * camera_from_world[2][1];
+			// 		return;
+			// 	}
+			// };
+			
+			return;
+		}
+
+		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_RIGHT) {
+			// //std::cout << "Tumble started." << std::endl;
+			float init_x = evt.button.x;
+			float init_y = evt.button.y;
+			UserCamera init_camera = debug_camera;
+			action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+				if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_RIGHT) {
+					// cancel upon button lifted:
+					action = nullptr;
+					//std::cout << "Tumble ended." << std::endl;
+					return;
+				}
+				if(evt.type == InputEvent::MouseMotion) {
+					//Handle motion
+					float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height; //why height not weight
+					float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height; 
+					//rotate
+					float speed = float(M_PI); //one full height == 180 
+					// float flip_x = (std::abs(init_camera.elevation) > 0.5f * float(M_PI) ? -1.0f : 1.0f);
+					debug_camera.rotation.y = init_camera.rotation.x - dx * speed;
+					debug_camera.rotation.x = init_camera.rotation.y - dy * speed;
+					// [-pi. pi]
+					// const float twopi = 2.0f * float(M_PI);
+					// free_camera.azimuth -= std::round(free_camera.azimuth / twopi) * twopi;
+					// free_camera.elevation -= std::round(free_camera.elevation / twopi) * twopi;
+					return;
+				}
+			};
+			
+			return;
+		}
+	}
 }
 
 
@@ -1416,15 +1505,29 @@ void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 lo
 	if(node->light != nullptr){
 		// std::cout << "Light: " << node->light->name;
 		if(auto* sun = std::get_if<S72::Light::Sun>(&node->light->source)) {
-			world.SUN_ENERGY.r = node->light->tint.r * sun->strength;
-			world.SUN_ENERGY.g = node->light->tint.g * sun->strength;
-			world.SUN_ENERGY.b = node->light->tint.b * sun->strength;
+			if(sun->angle == 3.14159f) {
+				world.SKY_ENERGY.r = node->light->tint.r * sun->strength;
+				world.SKY_ENERGY.g = node->light->tint.g * sun->strength;
+				world.SKY_ENERGY.b = node->light->tint.b * sun->strength;
 
-			vec3 sun_dir = vec3(0.0f, 0.0f, 1.f); //z- axis because shader use point to light
-			vec3 transformed_sun_dir = glm::normalize(vec3(local_trans * vec4(sun_dir, 0.0f)));
-			world.SUN_DIRECTION.x = transformed_sun_dir.x;
-			world.SUN_DIRECTION.y = transformed_sun_dir.y;
-			world.SUN_DIRECTION.z = transformed_sun_dir.z;
+				vec3 sun_dir = vec3(0.0f, 0.0f, 1.f); //z- axis because shader use point to light
+				vec3 transformed_sun_dir = glm::normalize(vec3(local_trans * vec4(sun_dir, 0.0f)));
+				world.SKY_DIRECTION.x = transformed_sun_dir.x;
+				world.SKY_DIRECTION.y = transformed_sun_dir.y;
+				world.SKY_DIRECTION.z = transformed_sun_dir.z;
+			} else if (sun->angle == 0.0f) {
+				world.SUN_ENERGY.r = node->light->tint.r * sun->strength;
+				world.SUN_ENERGY.g = node->light->tint.g * sun->strength;
+				world.SUN_ENERGY.b = node->light->tint.b * sun->strength;
+
+				vec3 sun_dir = vec3(0.0f, 0.0f, 1.f); //z- axis because shader use point to light
+				vec3 transformed_sun_dir = glm::normalize(vec3(local_trans * vec4(sun_dir, 0.0f)));
+				world.SUN_DIRECTION.x = transformed_sun_dir.x;
+				world.SUN_DIRECTION.y = transformed_sun_dir.y;
+				world.SUN_DIRECTION.z = transformed_sun_dir.z;
+			} else {
+				throw std::runtime_error("Unexpected Light Type");
+			}
 		}
 	}
 	for(S72::Node* child : node->children){
