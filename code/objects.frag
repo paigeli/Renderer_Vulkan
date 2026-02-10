@@ -45,8 +45,8 @@ void main() {
         } else {
             baseColor = mat.albedo.rgb;
         }
-        vec3 e = SKY_ENERGY * vec3(0.5 * dot(n, SKY_DIRECTION) + 0.5)
-                + SUN_ENERGY * max(0.0, dot(n, SUN_DIRECTION)); // half lambertien
+        vec3 e = SUN_ENERGY * vec3(0.5 * dot(n, SUN_DIRECTION) + 0.5);
+        // vec3 e = SKY_ENERGY * vec3(0.5 * dot(n, SKY_DIRECTION) + 0.5) + SUN_ENERGY * max(0.0, dot(n, SUN_DIRECTION)); // half lambertien
         outColor = vec4(e*baseColor / 3.1415926  , 1.0);
     }
    

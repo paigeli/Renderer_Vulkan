@@ -27,6 +27,17 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		rtg.helpers.print_scene_info(s72);
 		rtg.helpers.print_scene_graph(s72);
 	}
+
+	if(rtg.configuration.camera_name != "") {
+		auto it = s72.cameras.find(rtg.configuration.camera_name);
+		if (it != s72.cameras.end()) {
+			camera_mode = CameraMode::Scene;
+			cur_scene_camera = &it->second;
+		} else {
+			throw std::runtime_error("Scene camera named " + rtg.configuration.camera_name + " not found");
+		}
+	}
+
 	//select a depth format:
 	depth_format = rtg.helpers.find_image_format(
 		{VK_FORMAT_D32_SFLOAT, VK_FORMAT_X8_D24_UNORM_PACK32},
@@ -1166,17 +1177,32 @@ void Tutorial::update(float dt) {
 	if (camera_mode == CameraMode::Scene) {
 		//camera orbit the origin;
 		//float ang = float(M_PI) * 2.f * 10.f ;
-		float ang = float(M_PI) * 2.f * 10.f * (time / 60.f);
-		CLIP_FROM_WORLD = vulkan_perspective(
-			60.f * float(M_PI) / 180.f,
+		// float ang = float(M_PI) * 2.f * 10.f * (time / 60.f);
+		// CLIP_FROM_WORLD = vulkan_perspective(
+		// 	60.f * float(M_PI) / 180.f,
+		// 	rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
+		// 	0.1f,
+		// 	1000.f
+		// ) * vulkan_look_at(
+		// 	5.0f * std::cos(ang), 5.0f*std::sin(ang), 3.0f,
+		// 	0.f, 0.f, 0.5f,
+		// 	0.f, 0.f, 1.f
+		// );
+		assert(cur_scene_camera);
+		if(auto* perspective_params = std::get_if<S72::Camera::Perspective>(&cur_scene_camera->projection)) {
+			mat4 proj = vulkan_perspective(
+			perspective_params->vfov,
+			//perspective_params->aspect,
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
-			0.1f,
-			1000.f
-		) * vulkan_look_at(
-			5.0f * std::cos(ang), 5.0f*std::sin(ang), 3.0f,
-			0.f, 0.f, 0.5f,
-			0.f, 0.f, 1.f
-		);
+			perspective_params->near,
+			perspective_params->far);
+			mat4 view = glm::inverse(cur_scene_camera->transform);
+			CLIP_FROM_WORLD = proj * view;
+		} else {
+			throw std::runtime_error("Failed to get Scene Camera Params");
+		}
+		
+		
 	} else if (camera_mode == CameraMode::Free) {
 		CLIP_FROM_WORLD = vulkan_perspective(
 			free_camera.fov,

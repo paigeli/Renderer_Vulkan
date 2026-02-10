@@ -5,7 +5,6 @@
 #include "mat4.hpp"
 #include "RTG.hpp"
 
-
 struct Tutorial : RTG::Application {
 
 	Tutorial(RTG &);
@@ -193,6 +192,8 @@ struct Tutorial : RTG::Application {
 		Debug = 2,
 	} camera_mode = CameraMode::Free;
 
+	S72::Camera* cur_scene_camera = nullptr;
+
 	struct OrbitCamera {
 		float target_x = 0.f, target_y = 0.f, target_z = 0.f;
 		float radius = 3.5f;
@@ -217,6 +218,8 @@ struct Tutorial : RTG::Application {
 	};
 	std::vector<ObjectInstance> object_instances;
 
+	//--------------------------------------------------------------------
+	//Helper functions:
 	void traverse_children(S72 &s72, S72::Node* node, size_t &instanceIndex, mat4 local_trans, std::vector<ObjectInstance> &objects);
 	void fill_scene_graph(S72 &s72,  std::vector<ObjectInstance> &object_instances);
 	ObjectsPipeline::Transform makeInstanceData(mat4 world_from_local, uint32_t material_index);
