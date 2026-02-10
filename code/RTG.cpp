@@ -53,6 +53,10 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			scene_file = argv[argi];
 		} else if(arg == "--print"){
 			print = true;
+		} else if(arg == "--camera"){
+			if (argi + 1 >= argc) throw std::runtime_error("--camera requires a parameter (a camera name).");
+			argi += 1;
+			camera_name = argv[argi];
 		} else {
 			throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 		}
@@ -66,6 +70,7 @@ void RTG::Configuration::usage(std::function< void(const char *, const char *) >
 	callback("--headless", "Dont' create a window; read events from stdin");
 	callback("--scene <path/*.s72>", "Specifies the scene(in .s72 format) to view");
 	callback("--print", "Print loaded scene information");
+	callback("--camera <name>", "View the scene throught the camera named <name>");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(

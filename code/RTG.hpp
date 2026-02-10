@@ -80,6 +80,9 @@ struct RTG {
 		std::string scene_file = "";
 		// --print if true, print scene info
 		bool print = false;
+		//if set, use a specific camera math the name:
+		// `--camera <name>` command-line flag
+		std::string camera_name = "";
 
 		//for configuration construction + management:
 		Configuration() = default;

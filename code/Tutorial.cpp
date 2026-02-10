@@ -221,23 +221,16 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		}	
 		
 		{//Material
-			// for (auto const &pair : s72.materials) {
-
-			// }
-			// materials.emplace_back(ObjectsPipeline::Material{
-			// 	.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
-			// 	.albedo = vec3(1.0f, 0.0f, 0.0f), // test red color
-			// });
-			// size_t bytes = materials.size() * sizeof(materials[0]);
+			size_t matCount = s72.materials.size();
 			workspace.Material_src = rtg.helpers.create_buffer(
-					sizeof(ObjectsPipeline::Material) * 1,
+					sizeof(ObjectsPipeline::Material) * matCount,
 					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 					Helpers::Mapped
 			);
 
 			workspace.Material = rtg.helpers.create_buffer(
-				sizeof(ObjectsPipeline::Material) * 1,
+				sizeof(ObjectsPipeline::Material) * matCount,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				Helpers::Unmapped
@@ -314,16 +307,38 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		}
 	}
 
-	{		//Material
-			// for (auto const &pair : s72.materials) {
-
-			// }
-		materials.emplace_back(ObjectsPipeline::Material{
-			.albedo = vec4(1.0f, 0.0f, 0.0f, 0.0f), // test red color
+	{//Material
+		materials.assign(s72.materials.size(), ObjectsPipeline::Material{
+			.albedo = vec4(1.0f, 0.0f, 1.0f, 0.0f), // test purple color
 			.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
 		});
-			// size_t bytes = materials.size() * sizeof(materials[0]);
-
+		for (auto const &pair : s72.materials) {
+			const S72::Material& mat = pair.second; 
+			ObjectsPipeline::Material& mat_out = materials[mat.index];
+			if (auto* p = std::get_if<S72::Material::PBR>(&mat.brdf)) {
+				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_PBR;
+				//TODO
+			} else if (auto* l = std::get_if<S72::Material::Lambertian>(&mat.brdf)) {
+				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN;
+				if (auto* albedo =  std::get_if<S72::color>(&l->albedo)) {
+					mat_out.albedo = vec4(albedo->r, albedo->g, albedo->b, 1.0f);
+				} else if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&l->albedo)){
+					mat_out.hasAlbedoTex = 1;
+					mat_out.albedoTexIndex = 0; //TODO: Set tex id
+				}
+			} else if (auto* m = std::get_if<S72::Material::Mirror>(&mat.brdf)) {
+				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_MIRROR;
+				//TODO
+			} else if (auto* e = std::get_if<S72::Material::Environment>(&mat.brdf)) {
+				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_ENVIRONMENT;
+				//TODO
+			}
+			
+		}
+		// materials.emplace_back(ObjectsPipeline::Material{
+		// 	.albedo = vec4(1.0f, 0.0f, 0.0f, 0.0f), // test red color
+		// 	.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
+		// });
 	}
 
 	{ //objects
@@ -873,7 +888,12 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		assert(workspace.Material_src.size == materials.size() * sizeof(ObjectsPipeline::Material)); //TODO:Check werid
 
 		//host-side copy into Material_src:
-		memcpy(workspace.Material_src.allocation.data(), &workspace.Material, sizeof(workspace.Material));
+		// memcpy(workspace.Material_src.allocation.data(), &materials, sizeof(workspace.Material));
+		ObjectsPipeline::Material *out = reinterpret_cast<ObjectsPipeline::Material*>(workspace.Material_src.allocation.data());
+		for(ObjectsPipeline::Material const &inst : materials) {
+			*out = inst;
+			++out;
+		}
 
 		//add device-side copy from Material_src -> Material:
 		assert(workspace.Material_src.size == workspace.Material.size);
@@ -1138,6 +1158,11 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 void Tutorial::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
+	{// make some objects:
+		object_instances.clear();
+		fill_scene_graph(s72, object_instances);
+	}
+
 	if (camera_mode == CameraMode::Scene) {
 		//camera orbit the origin;
 		//float ang = float(M_PI) * 2.f * 10.f ;
@@ -1167,6 +1192,8 @@ void Tutorial::update(float dt) {
 	}
 
 	{ //static sun and sky:
+		assert(s72.lights.size() >= 1);
+		
 		world.SKY_DIRECTION.x = 0.0f;
 		world.SKY_DIRECTION.y = 0.0f;
 		world.SKY_DIRECTION.z = 1.0f;
@@ -1174,14 +1201,6 @@ void Tutorial::update(float dt) {
 		world.SKY_ENERGY.r = 0.1f;
 		world.SKY_ENERGY.g = 0.1f;
 		world.SKY_ENERGY.b = 0.2f;
-
-		world.SUN_DIRECTION.x = 6.0f / 23.0f;
-		world.SUN_DIRECTION.y = 13.0f / 23.0f;
-		world.SUN_DIRECTION.z = 18.0f / 23.0f;
-
-		world.SUN_ENERGY.r = 1.0f;
-		world.SUN_ENERGY.g = 1.0f;
-		world.SUN_ENERGY.b = 0.9f;
 	}
 
 	lines_vertices.clear();
@@ -1244,29 +1263,7 @@ void Tutorial::update(float dt) {
 	// 	v.Position.z = res[2] / res[3];
 	// }
 
-	{// make some objects:
-		object_instances.clear();
-		// {//plane translated +x by 1
-		// mat4 WORLD_FROM_LOCAL{
-		// 	1.0f, 0.0f, 0.0f, 0.0f,
-		// 	0.0f, 1.0f, 0.0f, 0.0f,
-		// 	0.0f, 0.0f, 1.0f, 0.0f,
-		// 	0.0f, 0.0f, 0.0f, 1.0f,
-		// };
 
-		// for (auto const& pair : object_vertices_list) {
-		// 	object_instances.emplace_back(ObjectInstance{
-		// 		.vertices = pair.second,
-		// 		.transform{
-		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
-		// 		},
-		// 	});
-		// }
-
-		fill_scene_graph(s72, object_instances);
-	}
 }
 
 
@@ -1366,29 +1363,43 @@ void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 lo
 	//Print node information
 	if(node->camera != nullptr){
 		// std::cout << "Camera: " << node->camera->name;
+		s72.cameras[node->camera->name].transform = local_trans;
 	}
 	if(node->mesh != nullptr){
 		//std::cout << "Mesh: " << node->mesh->name;
 		//make objectvertices
 		auto it = object_vertices_list.find(node->mesh->name);
 		if (it == object_vertices_list.end()) throw std::runtime_error("Failed to find the mesh in object vertices list");
+		uint32_t matId = 0;
+		if(node->mesh->material != nullptr){
+			// objects.back().material = node->mesh->material->name;
+			matId = node->mesh->material->index;
+			//std::cout << " {Material: " <<node->mesh->material->name << "}";
+		}
 		ObjectInstance obj = ObjectInstance{
 			.vertices = it->second,
-			.transform = makeTransform(CLIP_FROM_WORLD, local_trans),
+			.transform = makeInstanceData(local_trans, matId),
 		};
 		objects.emplace_back(obj);
 		id++;
-		if(node->mesh->material != nullptr){
-
-			objects.back().material = node->mesh->material->name;
-			//std::cout << " {Material: " <<node->mesh->material->name << "}";
-		}
+		
 	}
 	if(node->environment != nullptr){
 		// std::cout << "Environment: " << node->environment->name;
 	}
 	if(node->light != nullptr){
 		// std::cout << "Light: " << node->light->name;
+		if(auto* sun = std::get_if<S72::Light::Sun>(&node->light->source)) {
+			world.SUN_ENERGY.r = node->light->tint.r * sun->strength;
+			world.SUN_ENERGY.g = node->light->tint.g * sun->strength;
+			world.SUN_ENERGY.b = node->light->tint.b * sun->strength;
+
+			vec3 sun_dir = vec3(0.0f, 0.0f, 1.f); //z- axis because shader use point to light
+			vec3 transformed_sun_dir = glm::normalize(vec3(local_trans * vec4(sun_dir, 0.0f)));
+			world.SUN_DIRECTION.x = transformed_sun_dir.x;
+			world.SUN_DIRECTION.y = transformed_sun_dir.y;
+			world.SUN_DIRECTION.z = transformed_sun_dir.z;
+		}
 	}
 	for(S72::Node* child : node->children){
 		mat4 new_trans = local_trans * glm::translate(glm::mat4(1.f), child->translation) * glm::toMat4(child->rotation) * glm::scale(glm::mat4(1.0f), child->scale); // TRS
@@ -1408,11 +1419,11 @@ void Tutorial::fill_scene_graph(S72 &_s72, std::vector<ObjectInstance> &objects)
 	// }
 }
 
-Tutorial::ObjectsPipeline::Transform Tutorial::makeTransform(mat4 clip_from_world, mat4 world_from_local) {
+Tutorial::ObjectsPipeline::Transform Tutorial::makeInstanceData(mat4 world_from_local, uint32_t material_index) {
 	return ObjectsPipeline::Transform {
-		.CLIP_FROM_LOCAL = clip_from_world * world_from_local,
+		.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * world_from_local,
 		.WORLD_FROM_LOCAL = world_from_local,
 		.WORLD_FROM_LOCAL_NORMAL = world_from_local, //since our matrices are orthonormal, the inverse transpose is simply the matrix itself.
-		.MATERIAL_INDEX = 0,
+		.MATERIAL_INDEX = material_index,
 	};
 }

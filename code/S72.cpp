@@ -639,8 +639,10 @@ S72 S72::load(std::string const &scene_file) {
 				.interpolation = interpolation,
 			});
 		} else if (type == "MATERIAL") {
+			size_t matCount = s72.materials.size();
 			Material &material = s72.materials[name];
-
+			assert(matCount <= std::numeric_limits<uint32_t>::max());
+			material.index = static_cast<uint32_t>(matCount);
 			//check that we haven't already parsed this:
 			if (material.name != "") {
 				throw std::runtime_error("Multiple \"MATERIAL\" objects with name \"" + name + "\".");

@@ -133,7 +133,7 @@ struct S72 {
 	//zero or more "CAMERA"s, all with unique names:
 	struct Camera {
 		std::string name;
-
+		mat4 transform = mat4(1.0f);
 		struct Perspective {
 			float aspect;
 			float vfov;
@@ -175,6 +175,7 @@ struct S72 {
 	//zero or more "MATERIAL"s, all with unique names:
 	struct Material {
 		std::string name;
+		uint32_t index = 0;
 
 		Texture *normal_map = nullptr; //optional, set to null if not specified
 		Texture *displacement_map = nullptr; //optional, set to null if not specified

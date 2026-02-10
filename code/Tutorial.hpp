@@ -190,6 +190,7 @@ struct Tutorial : RTG::Application {
 	enum class CameraMode {
 		Scene = 0,
 		Free = 1,
+		Debug = 2,
 	} camera_mode = CameraMode::Free;
 
 	struct OrbitCamera {
@@ -212,13 +213,13 @@ struct Tutorial : RTG::Application {
 		ObjectVertices vertices;
 		ObjectsPipeline::Transform transform;
 		uint32_t texture = 0;
-		std::string material = "";
+		// std::string material = "";
 	};
 	std::vector<ObjectInstance> object_instances;
 
 	void traverse_children(S72 &s72, S72::Node* node, size_t &instanceIndex, mat4 local_trans, std::vector<ObjectInstance> &objects);
 	void fill_scene_graph(S72 &s72,  std::vector<ObjectInstance> &object_instances);
-	ObjectsPipeline::Transform makeTransform(mat4 clip_from_world, mat4 world_from_local);
+	ObjectsPipeline::Transform makeInstanceData(mat4 world_from_local, uint32_t material_index);
 
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:
