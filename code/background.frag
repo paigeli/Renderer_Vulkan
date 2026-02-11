@@ -46,13 +46,12 @@ void main() {
     // //vec3 finalColor = vec3(intensity, intensity, intensity);
     // outColor = vec4(finalColor, 1.0);
 
-    vec3 lightBlue = vec3(0.6, 0.8, 1.0);  // top
-    vec3 darkBlue  = vec3(0.0, 0.0, 0.3);  // bottom
+    // vec3 lightBlue = vec3(0.6, 0.8, 1.0);  // top
+    // vec3 darkBlue  = vec3(0.0, 0.0, 0.3);  // bottom
 
-    // vUV.y = 0 at bottom, 1 at top (adjust depending on your setup)
-    float t = position.y;
+    // // vUV.y = 0 at bottom, 1 at top (adjust depending on your setup)
+    // float t = position.y;
 
-    vec3 color = mix(lightBlue, darkBlue, t);
-    outColor = vec4(color, 1.0);
-
+    // vec3 color = mix(lightBlue, darkBlue, t);
+    outColor = vec4(0.0, 0.0, 0.0, 1.0);
 }

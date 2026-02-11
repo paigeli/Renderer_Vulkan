@@ -6,6 +6,9 @@
 
 #include <GLFW/glfw3.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "external/stb_image/stb_image.h"
+
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -13,8 +16,26 @@
 #include <iostream>
 #include <fstream>
 
+void flip_image_y_inplace_rgba(uint8_t* pixels, int width, int height)
+{
+    const int rowSize = width * 4; // 4 bytes per pixel (RGBA)
+
+    std::vector<uint8_t> tmp(rowSize); // temp row buffer
+
+    for (int y = 0; y < height / 2; ++y) {
+        uint8_t* rowTop    = pixels + y * rowSize;
+        uint8_t* rowBottom = pixels + (height - 1 - y) * rowSize;
+
+        // swap rows
+        std::memcpy(tmp.data(),   rowTop,    rowSize);
+        std::memcpy(rowTop,       rowBottom, rowSize);
+        std::memcpy(rowBottom,    tmp.data(), rowSize);
+    }
+}
+
 Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 	//refsol::Tutorial_constructor(rtg, &depth_format, &render_pass, &command_pool);
+	viewport_rect = {0, 0, rtg.configuration.surface_extent.width, rtg.configuration.surface_extent.height};
 	//Scene Graph
 	try {
 		s72 = S72::load(rtg.configuration.scene_file);
@@ -401,6 +422,13 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				// POSITION: R32G32B32_SFLOAT, offset 0, stride 48 (example)
 				in.seekg(i * position.stride + position.offset, std::ios::beg);
 				in.read(reinterpret_cast<char*>(&v.Position), sizeof(v.Position));
+				obj_vertices.min_aabb_bound.x = std::min(obj_vertices.min_aabb_bound.x, v.Position.x);
+				obj_vertices.min_aabb_bound.y = std::min(obj_vertices.min_aabb_bound.y, v.Position.y);
+				obj_vertices.min_aabb_bound.z = std::min(obj_vertices.min_aabb_bound.z, v.Position.z);
+
+				obj_vertices.max_aabb_bound.x = std::max(obj_vertices.max_aabb_bound.x, v.Position.x);
+				obj_vertices.max_aabb_bound.y = std::max(obj_vertices.max_aabb_bound.y, v.Position.y);
+				obj_vertices.max_aabb_bound.z = std::max(obj_vertices.max_aabb_bound.z, v.Position.z);
 				//std::cout << "Vertex " << i << " position: " << v.Position.x << v.Position.y << v.Position.z << std::endl;
 				// NORMAL
 				// in.seekg(i * normal.stride + normal.offset, std::ios::beg);
@@ -430,8 +458,35 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 	{//texture
 		{ //make some textures
-			textures.reserve(3);
-			{//dark grey / light grey checkerboard with a red square at the origin
+			textures.reserve(1);
+			if (!s72.textures.empty()) {
+				for (const auto& pair : s72.textures) {
+					// const std::string& tex_name = pair.first;
+					const S72::Texture& tex = pair.second;
+					int width, height, channels;
+					// int ok = stbi_info(tex.path, &width, &height, &channels);
+					unsigned char* data = stbi_load(tex.path.c_str(), &width, &height, &channels, 4);
+					if (!data) {
+						throw std::runtime_error("Failed to load texture image: " + tex.path);
+					}
+					// std::cout << "Texture size: " << width << "x" << height << " channels: " << channels << std::endl;
+					flip_image_y_inplace_rgba(data, width, height);
+					textures.emplace_back(rtg.helpers.create_image(
+						VkExtent2D{.width = uint32_t(width), .height = uint32_t(height)},
+						VK_FORMAT_R8G8B8A8_SRGB,
+						VK_IMAGE_TILING_OPTIMAL,
+						VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+						VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+						Helpers::Unmapped
+					));
+
+					size_t image_size = width * height * 4; // 4 bytes per pixel (RGBA)
+					rtg.helpers.transfer_to_image(data, image_size, textures.back());
+
+					stbi_image_free(data);
+				}
+			} else {
+				//dark grey / light grey checkerboard with a red square at the origin
 				//make texture
 				uint32_t size = 128;
 				std::vector<uint32_t> data;
@@ -466,66 +521,102 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				//transfer data
 				rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
 			}
+			
+			// {//dark grey / light grey checkerboard with a red square at the origin
+			// 	//make texture
+			// 	uint32_t size = 128;
+			// 	std::vector<uint32_t> data;
+			// 	data.reserve(size*size);
+			// 	for (uint32_t y = 0; y < size; ++y) {
+			// 		float fy = (y + 0.5f) / float(size);
+			// 		for (uint32_t x = 0; x < size; ++x) {
+			// 			float fx = (x + 0.5f) / float(size);
+			// 			if (fx < 0.05f && fy < 0.05f) {
+			// 				data.emplace_back(0xff0000ff); //red
+			// 			}
+			// 			else if ((fx < 0.5f) == (fy < 0.5f)) {
+			// 				data.emplace_back(0xff444444); //darkgery
+			// 			}
+			// 			else {
+			// 				data.emplace_back(0xffbbbbbb); //lightgrey
+			// 			}
+			// 		}
+			// 	}
+			// 	assert(data.size() == size*size);
+				
+			// 	//texture in GPU
+			// 	textures.emplace_back(rtg.helpers.create_image(
+			// 		VkExtent2D{.width = size, .height = size},
+			// 		VK_FORMAT_R8G8B8A8_UNORM,
+			// 		VK_IMAGE_TILING_OPTIMAL,
+			// 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			// 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			// 		Helpers::Unmapped
+			// 	));
+
+			// 	//transfer data
+			// 	rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
+			// }
 
 			
-			{//texture 1 will be a classic xor texture
-				//make texture
-				uint32_t size = 256;
-				std::vector<uint32_t> data;
-				data.reserve(size*size);
-				for (uint32_t y = 0; y < size; ++y) {
-					for (uint32_t x = 0; x < size; ++x) {
-						uint8_t r = uint8_t(x) ^ uint8_t(y);
-						uint8_t g = uint8_t(x+128) ^ uint8_t(y);
-						uint8_t b = uint8_t(x) ^ uint8_t(y+27);
-						uint8_t a = 0xff;
-						data.emplace_back(uint32_t(r) | uint32_t(g) << 8 | uint32_t(b) << 16 | uint32_t(a) << 24); // ABGR
+			// {//texture 1 will be a classic xor texture
+			// 	//make texture
+			// 	uint32_t size = 256;
+			// 	std::vector<uint32_t> data;
+			// 	data.reserve(size*size);
+			// 	for (uint32_t y = 0; y < size; ++y) {
+			// 		for (uint32_t x = 0; x < size; ++x) {
+			// 			uint8_t r = uint8_t(x) ^ uint8_t(y);
+			// 			uint8_t g = uint8_t(x+128) ^ uint8_t(y);
+			// 			uint8_t b = uint8_t(x) ^ uint8_t(y+27);
+			// 			uint8_t a = 0xff;
+			// 			data.emplace_back(uint32_t(r) | uint32_t(g) << 8 | uint32_t(b) << 16 | uint32_t(a) << 24); // ABGR
 
-					}
-				}
-				assert(data.size() == size*size);
+			// 		}
+			// 	}
+			// 	assert(data.size() == size*size);
 				
-				//texture in GPU
-				textures.emplace_back(rtg.helpers.create_image(
-					VkExtent2D{.width = size, .height = size},
-					VK_FORMAT_R8G8B8A8_SRGB,
-					VK_IMAGE_TILING_OPTIMAL,
-					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-					Helpers::Unmapped
-				));
+			// 	//texture in GPU
+			// 	textures.emplace_back(rtg.helpers.create_image(
+			// 		VkExtent2D{.width = size, .height = size},
+			// 		VK_FORMAT_R8G8B8A8_SRGB,
+			// 		VK_IMAGE_TILING_OPTIMAL,
+			// 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			// 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			// 		Helpers::Unmapped
+			// 	));
 
-				//transfer data
-				rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-			} 
+			// 	//transfer data
+			// 	rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
+			// } 
 		
-			{//texture 2
-				//make texture
-				uint32_t size = 128;
-				std::vector<uint32_t> data;
-				data.reserve(size*size);
-				for (uint32_t y = 0; y < size; ++y) {
-					//float fy = (y + 0.5f) / float(size);
-					for (uint32_t x = 0; x < size; ++x) {
-						//float fx = (x + 0.5f) / float(size);
-						data.emplace_back(0xffffd700);	
-					}
-				}
-				assert(data.size() == size*size);
+			// {//texture 2
+			// 	//make texture
+			// 	uint32_t size = 128;
+			// 	std::vector<uint32_t> data;
+			// 	data.reserve(size*size);
+			// 	for (uint32_t y = 0; y < size; ++y) {
+			// 		//float fy = (y + 0.5f) / float(size);
+			// 		for (uint32_t x = 0; x < size; ++x) {
+			// 			//float fx = (x + 0.5f) / float(size);
+			// 			data.emplace_back(0xffffd700);	
+			// 		}
+			// 	}
+			// 	assert(data.size() == size*size);
 				
-				//texture in GPU
-				textures.emplace_back(rtg.helpers.create_image(
-					VkExtent2D{.width = size, .height = size},
-					VK_FORMAT_R8G8B8A8_UNORM,
-					VK_IMAGE_TILING_OPTIMAL,
-					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-					Helpers::Unmapped
-				));
+			// 	//texture in GPU
+			// 	textures.emplace_back(rtg.helpers.create_image(
+			// 		VkExtent2D{.width = size, .height = size},
+			// 		VK_FORMAT_R8G8B8A8_UNORM,
+			// 		VK_IMAGE_TILING_OPTIMAL,
+			// 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			// 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			// 		Helpers::Unmapped
+			// 	));
 
-				//transfer data
-				rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-			}
+			// 	//transfer data
+			// 	rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
+			// }
 		}
 
 		{ //make image views for the textures
@@ -1049,18 +1140,18 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		//run pipelines
 		{ //set scissor rectangle:
 			VkRect2D scissor {
-				.offset = {.x = 0, .y = 0},
-				.extent = rtg.swapchain_extent,
+				.offset = {.x = viewport_rect.x, .y = viewport_rect.y},
+				.extent = {.width = viewport_rect.width, .height = viewport_rect.height},
 			};
 			vkCmdSetScissor(workspace.command_buffer, 0, 1, &scissor);
 		}
 
 		{
 			VkViewport viewport {
-				.x = 0.f,
-				.y = 0.f,
-				.width = float(rtg.swapchain_extent.width),
-				.height = float(rtg.swapchain_extent.height),
+				.x = float(viewport_rect.x),
+				.y = float(viewport_rect.y),
+				.width = float(viewport_rect.width),
+				.height = float(viewport_rect.height),
 				.minDepth = 0.f,
 				.maxDepth = 1.f,
 			};
@@ -1080,7 +1171,7 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			vkCmdDraw(workspace.command_buffer, 3, 1, 0, 0);
 		}
 
-		{//draw with the lines pipeline:
+		if(!lines_vertices.empty()){//draw with the lines pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
 			{
 				std::array<VkBuffer, 1> vertex_buffers {workspace.lines_vertices.handle};
@@ -1180,49 +1271,210 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 }
 
+static const uint16_t aabb_edges[24] = {
+    0,1, 1,2, 2,3, 3,0,   // bottom
+    4,5, 5,6, 6,7, 7,4,   // top
+    0,4, 1,5, 2,6, 3,7    // vertical
+};
+
+std::array<vec3, 8> get_aabb_corners(vec3 const& mn, vec3 const& mx) {
+    return {
+        vec3(mn.x, mn.y, mn.z),
+        vec3(mx.x, mn.y, mn.z),
+        vec3(mx.x, mx.y, mn.z),
+        vec3(mn.x, mx.y, mn.z),
+        vec3(mn.x, mn.y, mx.z),
+        vec3(mx.x, mn.y, mx.z),
+        vec3(mx.x, mx.y, mx.z),
+        vec3(mn.x, mx.y, mx.z)
+    };
+}
+
+static const std::array<vec3, 8> clipCorners = {
+    // near plane
+    glm::vec3(-1.f,  1.f, 0.f), // near top-left
+    glm::vec3( 1.f,  1.f, 0.f), // near top-right
+    glm::vec3( 1.f, -1.f, 0.f), // near bottom-right
+    glm::vec3(-1.f, -1.f, 0.f), // near bottom-left
+
+    // far plane
+    glm::vec3(-1.f,  1.f, 1.f), // far top-left
+    glm::vec3( 1.f,  1.f, 1.f), // far top-right
+    glm::vec3( 1.f, -1.f, 1.f), // far bottom-right
+    glm::vec3(-1.f, -1.f, 1.f)  // far bottom-left
+};
+
+std::array<glm::vec3, 8> get_frustum_corners_view_space(const glm::mat4& proj)
+{
+    glm::mat4 invProj = glm::inverse(proj);
+    std::array<glm::vec3, 8> viewCorners;
+
+    for (size_t i = 0; i < 8; ++i) {
+        glm::vec4 v = invProj * vec4(clipCorners[i], 1.0f);   // back to view space (homogeneous)
+        v /= v.w;                                 // perspective divide
+        viewCorners[i] = glm::vec3(v);           // now in camera local space
+    }
+
+    return viewCorners;
+}
+
+std::array<vec3, 8> get_camera_frustrum_corners(Tutorial::OrbitCamera const& cam, float g_aspect)
+{
+    // 1) Camera position from spherical coords
+    vec3 target(cam.target_x, cam.target_y, cam.target_z);
+
+    float cosE = std::cos(cam.elevation);
+    float sinE = std::sin(cam.elevation);
+    float cosA = std::cos(cam.azimuth);
+    float sinA = std::sin(cam.azimuth);
+
+    vec3 eye(
+        target.x + cam.radius * cosE * cosA,
+        target.y + cam.radius * sinE,
+        target.z + cam.radius * cosE * sinA
+    );
+
+    // 2) Basis vectors (right, up, forward)
+    vec3 forward = glm::normalize(target - eye);          // look at target
+    vec3 worldUp = vec3(0.0f, 1.0f, 0.0f);
+
+    vec3 right   =  glm::normalize( glm::cross(forward, worldUp));
+    vec3 up      = glm::normalize(glm::cross(right, forward));
+
+    // 3) Frustum dimensions at near and far planes
+    float tanHalfFov = std::tan(cam.fov * 0.5f);
+
+    float nh = cam.near * tanHalfFov;
+    float nw = nh * g_aspect;
+
+    float fh = cam.far * tanHalfFov;
+    float fw = fh * g_aspect;
+
+    vec3 nc = eye + forward * cam.near; // near plane center
+    vec3 fc = eye + forward * cam.far;  // far plane center
+
+    std::array<vec3, 8> corners;
+
+    // Near plane
+    corners[0] = nc + up * nh - right * nw; // near top-left
+    corners[1] = nc + up * nh + right * nw; // near top-right
+    corners[2] = nc - up * nh + right * nw; // near bottom-right
+    corners[3] = nc - up * nh - right * nw; // near bottom-left
+
+    // Far plane
+    corners[4] = fc + up * fh - right * fw; // far top-left
+    corners[5] = fc + up * fh + right * fw; // far top-right
+    corners[6] = fc - up * fh + right * fw; // far bottom-right
+    corners[7] = fc - up * fh - right * fw; // far bottom-left
+
+    return corners;
+}
 
 void Tutorial::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
+	lines_vertices.clear();
+	viewport_rect = {0, 0, rtg.configuration.surface_extent.width, rtg.configuration.surface_extent.height};
+
 	if (camera_mode == CameraMode::Scene) {
+		if (!cur_scene_camera) {
+			assert(s72.cameras.size() > 0 && "Scene Camera mode selected but no cameras in the scene");
+			cur_scene_camera = &s72.cameras.begin()->second;
+		}
 		assert(cur_scene_camera);
 		if(auto* perspective_params = std::get_if<S72::Camera::Perspective>(&cur_scene_camera->projection)) {
 			mat4 proj = vulkan_perspective(
 			perspective_params->vfov,
-			//perspective_params->aspect,
-			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
+			perspective_params->aspect,
+			// rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
 			perspective_params->near,
 			perspective_params->far);
 			mat4 view = glm::inverse(cur_scene_camera->transform);
 			CLIP_FROM_WORLD = proj * view;
+
+			//aspect : pillarbox & letterbox
+			float window_aspect = rtg.swapchain_extent.width / float(rtg.swapchain_extent.height);
+			if (window_aspect > perspective_params->aspect) {
+				// Pillarbox (bars left/right)
+				viewport_rect.height = rtg.swapchain_extent.height;
+				viewport_rect.width  = uint32_t(rtg.swapchain_extent.height * perspective_params->aspect + 0.5f);
+				viewport_rect.x      = int32_t((rtg.swapchain_extent.width  - viewport_rect.width) / 2);
+				viewport_rect.y      = 0;
+			} else {
+				// Letterbox (bars top/bottom)
+				viewport_rect.width  = rtg.swapchain_extent.width;
+				viewport_rect.height = uint32_t(rtg.swapchain_extent.width / perspective_params->aspect + 0.5f);
+				viewport_rect.x      = 0;
+				viewport_rect.y      = int32_t((rtg.swapchain_extent.height - viewport_rect.height) / 2);
+			}
 		} else {
 			throw std::runtime_error("Failed to get Scene Camera Params");
 		}
 	} else if (camera_mode == CameraMode::Free) {
-		CLIP_FROM_WORLD = vulkan_perspective(
+		free_camera.proj = vulkan_perspective(
 			free_camera.fov,
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
 			free_camera.near,
-			free_camera.far
-		) * vulkan_orbit(
+			free_camera.far);
+		
+		free_camera.view = vulkan_orbit(
 			free_camera.target_x, free_camera.target_y, free_camera.target_z,
 			free_camera.azimuth, free_camera.elevation, free_camera.radius
 		);
+
+		CLIP_FROM_WORLD = free_camera.proj * free_camera.view;
 	} else if (camera_mode == CameraMode::Debug) {
-		mat4 proj = vulkan_perspective(
-		debug_camera.fov,
-		rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
-		debug_camera.near,
-		debug_camera.far);
- 		mat4 transform = glm::translate(glm::mat4(1.f), debug_camera.translation);
-		// Apply Rotation (Order matters: Y -> X -> Z is standard for cameras/objects)
-		transform = glm::rotate(transform, debug_camera.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f)); // Yaw
-		transform = glm::rotate(transform, debug_camera.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f)); // Pitch
-		transform = glm::rotate(transform, debug_camera.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)); // Roll
-		mat4 view = glm::inverse(transform);
-		CLIP_FROM_WORLD = proj * view;
+		// mat4 proj = vulkan_perspective(
+		// debug_camera.fov,
+		// rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
+		// debug_camera.near,
+		// debug_camera.far);
+ 		// mat4 transform = glm::translate(glm::mat4(1.f), debug_camera.translation);
+		// // Apply Rotation (Order matters: Y -> X -> Z is standard for cameras/objects)
+		// transform = glm::rotate(transform, debug_camera.rotation.y, glm::vec3(0.0f, 1.0f, 0.0f)); // Yaw
+		// transform = glm::rotate(transform, debug_camera.rotation.x, glm::vec3(1.0f, 0.0f, 0.0f)); // Pitch
+		// transform = glm::rotate(transform, debug_camera.rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)); // Roll
+		// mat4 view = glm::inverse(transform);
+		// CLIP_FROM_WORLD = proj * view;
+		CLIP_FROM_WORLD = vulkan_perspective(
+			debug_camera.fov,
+			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
+			debug_camera.near,
+			debug_camera.far
+		) * vulkan_orbit(
+			debug_camera.target_x, debug_camera.target_y, debug_camera.target_z,
+			debug_camera.azimuth, debug_camera.elevation, debug_camera.radius
+		);
+
+		//draw previous camera frustums in the debug camera mode:
+		if (auto* prev_cam_ptr = std::get_if<OrbitCamera*>(&previous_camera)) {
+			OrbitCamera* prev_cam = *prev_cam_ptr;
+			std::vector<PosColVertex> debug_vertices;
+			// std::array<vec3, 8> corners = get_camera_frustrum_corners(
+			// 	*prev_cam,
+			// 	rtg.swapchain_extent.width / float(rtg.swapchain_extent.height)
+			// );
+			std::array<vec3, 8> corners = get_frustum_corners_view_space(prev_cam->proj);
+			for (auto& corner : corners) {
+				vec4 transformed_corner = glm::inverse(prev_cam->view) * vec4(corner, 1.f);
+				debug_vertices.emplace_back(PosColVertex{
+					.Position{.x = transformed_corner.x, .y = transformed_corner.y, .z = transformed_corner.z},
+					.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
+				});
+			}
+			// for (auto& corner : corners) {
+			// 	debug_vertices.emplace_back(PosColVertex{
+			// 		.Position{.x = corner.x, .y = corner.y, .z = corner.z},
+			// 		.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
+			// 	});
+			// }
+			for (size_t i = 0; i < 24; i += 2) {
+				lines_vertices.emplace_back(debug_vertices[aabb_edges[i]]);
+				lines_vertices.emplace_back(debug_vertices[aabb_edges[i + 1]]);
+			}
+		}
 	} else {
-		assert(0 && "only two camera modes");
+		assert(0 && "only three camera modes");
 	}
 
 	{// make some objects:
@@ -1230,26 +1482,26 @@ void Tutorial::update(float dt) {
 		fill_scene_graph(s72, object_instances);
 	}
 
-	lines_vertices.clear();
-	lines_vertices.reserve(4);
-	lines_vertices.emplace_back(PosColVertex{
-		.Position{.x = -1.f, .y = -1.f, .z = 0.f},
-		.Color{.r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff}
-	});
-	lines_vertices.emplace_back(PosColVertex{
-		.Position{.x = 1.f, .y = 1.f, .z = 0.f},
-		.Color{.r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff}
-	});
-	lines_vertices.emplace_back(PosColVertex{
-		.Position{.x = -1.f, .y = 1.f, .z = 0.f},
-		.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
-	});
-	lines_vertices.emplace_back(PosColVertex{
-		.Position{.x = 1.f, .y = -1.f, .z = 0.f},
-		.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
-	});
+	// lines_vertices.clear();
+	// lines_vertices.reserve(4);
+	// lines_vertices.emplace_back(PosColVertex{
+	// 	.Position{.x = -1.f, .y = -1.f, .z = 0.f},
+	// 	.Color{.r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff}
+	// });
+	// lines_vertices.emplace_back(PosColVertex{
+	// 	.Position{.x = 1.f, .y = 1.f, .z = 0.f},
+	// 	.Color{.r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff}
+	// });
+	// lines_vertices.emplace_back(PosColVertex{
+	// 	.Position{.x = -1.f, .y = 1.f, .z = 0.f},
+	// 	.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
+	// });
+	// lines_vertices.emplace_back(PosColVertex{
+	// 	.Position{.x = 1.f, .y = -1.f, .z = 0.f},
+	// 	.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
+	// });
 
-	assert(lines_vertices.size() == 4);
+	// assert(lines_vertices.size() == 4);
 
 	// { //make some crossing lines at different depths:
 	// 	lines_vertices.clear();
@@ -1303,6 +1555,13 @@ void Tutorial::on_input(InputEvent const &evt) {
 	//general controls 
 	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_TAB) {
 		//switch camera modes
+		if (camera_mode == CameraMode::Scene) {
+			previous_camera = cur_scene_camera;
+		} else if (camera_mode == CameraMode::Free) {
+			previous_camera = &free_camera;
+		} else if (camera_mode == CameraMode::Debug) {
+			previous_camera = &debug_camera;
+		}
 		camera_mode = CameraMode((int(camera_mode) + 1) % uint8_t(CameraMode::CameraMode_Count));
 		//std::cout << "CameraMode Updated: " << int(camera_mode) << std::endl;
 		return;
@@ -1396,56 +1655,55 @@ void Tutorial::on_input(InputEvent const &evt) {
 		}
 	}
 
-		if (camera_mode == CameraMode::Debug) {
-
-		if(evt.type == InputEvent::MouseWheel) {
-			// //change distance by 10% every scroll click:
-			// free_camera.radius *= std::exp(std::log(1.1f) * -evt.wheel.y);
-			// free_camera.radius = std::max(free_camera.radius, 0.5f * free_camera.near);
-			// free_camera.radius = std::min(free_camera.radius, 2.0f * free_camera.far);
+	if (camera_mode == CameraMode::Debug) {
+				if(evt.type == InputEvent::MouseWheel) {
+			//change distance by 10% every scroll click:
+			debug_camera.radius *= std::exp(std::log(1.1f) * -evt.wheel.y);
+			debug_camera.radius = std::max(debug_camera.radius, 0.5f * debug_camera.near);
+			debug_camera.radius = std::min(debug_camera.radius, 2.0f * debug_camera.far);
 			return;
 		}
 
 		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_LEFT && (evt.button.mods & GLFW_MOD_SHIFT)) {
-			// //std::cout << "Panning started." << std::endl;
-			// float init_x = evt.button.x;
-			// float init_y = evt.button.y;
-			// OrbitCamera init_camera = free_camera;
-			// action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
-			// 	if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
-			// 		// cancel upon button lifted:
-			// 		action = nullptr;
-			// 		//std::cout << "Panning ended." << std::endl;
-			// 		return;
-			// 	}
-			// 	if(evt.type == InputEvent::MouseMotion) {
-			// 		//Handle motion
-			// 		float height = 2.f * std::tan(free_camera.fov * 0.5f) * free_camera.radius;
-			// 		float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height * height; //why height not weight
-			// 		float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height * height; 
+			//std::cout << "Panning started." << std::endl;
+			float init_x = evt.button.x;
+			float init_y = evt.button.y;
+			OrbitCamera init_camera = debug_camera;
+			action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+				if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+					// cancel upon button lifted:
+					action = nullptr;
+					//std::cout << "Panning ended." << std::endl;
+					return;
+				}
+				if(evt.type == InputEvent::MouseMotion) {
+					//Handle motion
+					float height = 2.f * std::tan(debug_camera.fov * 0.5f) * debug_camera.radius;
+					float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height * height; //why height not weight
+					float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height * height; 
 					
-			// 		mat4 camera_from_world = vulkan_orbit(
-			// 				init_camera.target_x, init_camera.target_y, init_camera.target_z,
-			// 				init_camera.azimuth, init_camera.elevation, init_camera.radius);
+					mat4 camera_from_world = vulkan_orbit(
+							init_camera.target_x, init_camera.target_y, init_camera.target_z,
+							init_camera.azimuth, init_camera.elevation, init_camera.radius);
 					
-			// 		//move distance
-			// 		free_camera.target_x = init_camera.target_x - dx * camera_from_world[0][0] - dy * camera_from_world[0][1];
-			// 		free_camera.target_y = init_camera.target_y - dx * camera_from_world[1][0] - dy * camera_from_world[1][1];
-			// 		free_camera.target_z = init_camera.target_z - dx * camera_from_world[2][0] - dy * camera_from_world[2][1];
-			// 		return;
-			// 	}
-			// };
+					//move distance
+					debug_camera.target_x = init_camera.target_x - dx * camera_from_world[0][0] - dy * camera_from_world[0][1];
+					debug_camera.target_y = init_camera.target_y - dx * camera_from_world[1][0] - dy * camera_from_world[1][1];
+					debug_camera.target_z = init_camera.target_z - dx * camera_from_world[2][0] - dy * camera_from_world[2][1];
+					return;
+				}
+			};
 			
 			return;
 		}
 
-		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_RIGHT) {
-			// //std::cout << "Tumble started." << std::endl;
+		if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+			//std::cout << "Tumble started." << std::endl;
 			float init_x = evt.button.x;
 			float init_y = evt.button.y;
-			UserCamera init_camera = debug_camera;
+			OrbitCamera init_camera = debug_camera;
 			action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
-				if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_RIGHT) {
+				if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
 					// cancel upon button lifted:
 					action = nullptr;
 					//std::cout << "Tumble ended." << std::endl;
@@ -1457,22 +1715,94 @@ void Tutorial::on_input(InputEvent const &evt) {
 					float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height; 
 					//rotate
 					float speed = float(M_PI); //one full height == 180 
-					// float flip_x = (std::abs(init_camera.elevation) > 0.5f * float(M_PI) ? -1.0f : 1.0f);
-					debug_camera.rotation.y = init_camera.rotation.x - dx * speed;
-					debug_camera.rotation.x = init_camera.rotation.y - dy * speed;
+					float flip_x = (std::abs(init_camera.elevation) > 0.5f * float(M_PI) ? -1.0f : 1.0f);
+					debug_camera.azimuth = init_camera.azimuth - dx * speed * flip_x;
+					debug_camera.elevation = init_camera.elevation - dy * speed;
 					// [-pi. pi]
-					// const float twopi = 2.0f * float(M_PI);
-					// free_camera.azimuth -= std::round(free_camera.azimuth / twopi) * twopi;
-					// free_camera.elevation -= std::round(free_camera.elevation / twopi) * twopi;
+					const float twopi = 2.0f * float(M_PI);
+					debug_camera.azimuth -= std::round(debug_camera.azimuth / twopi) * twopi;
+					debug_camera.elevation -= std::round(debug_camera.elevation / twopi) * twopi;
 					return;
 				}
 			};
 			
 			return;
 		}
+
+		// if(evt.type == InputEvent::MouseWheel) {
+		// 	// //change distance by 10% every scroll click:
+		// 	// free_camera.radius *= std::exp(std::log(1.1f) * -evt.wheel.y);
+		// 	// free_camera.radius = std::max(free_camera.radius, 0.5f * free_camera.near);
+		// 	// free_camera.radius = std::min(free_camera.radius, 2.0f * free_camera.far);
+		// 	return;
+		// }
+
+		// if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_LEFT && (evt.button.mods & GLFW_MOD_SHIFT)) {
+		// 	// //std::cout << "Panning started." << std::endl;
+		// 	// float init_x = evt.button.x;
+		// 	// float init_y = evt.button.y;
+		// 	// OrbitCamera init_camera = free_camera;
+		// 	// action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+		// 	// 	if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_LEFT) {
+		// 	// 		// cancel upon button lifted:
+		// 	// 		action = nullptr;
+		// 	// 		//std::cout << "Panning ended." << std::endl;
+		// 	// 		return;
+		// 	// 	}
+		// 	// 	if(evt.type == InputEvent::MouseMotion) {
+		// 	// 		//Handle motion
+		// 	// 		float height = 2.f * std::tan(free_camera.fov * 0.5f) * free_camera.radius;
+		// 	// 		float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height * height; //why height not weight
+		// 	// 		float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height * height; 
+					
+		// 	// 		mat4 camera_from_world = vulkan_orbit(
+		// 	// 				init_camera.target_x, init_camera.target_y, init_camera.target_z,
+		// 	// 				init_camera.azimuth, init_camera.elevation, init_camera.radius);
+					
+		// 	// 		//move distance
+		// 	// 		free_camera.target_x = init_camera.target_x - dx * camera_from_world[0][0] - dy * camera_from_world[0][1];
+		// 	// 		free_camera.target_y = init_camera.target_y - dx * camera_from_world[1][0] - dy * camera_from_world[1][1];
+		// 	// 		free_camera.target_z = init_camera.target_z - dx * camera_from_world[2][0] - dy * camera_from_world[2][1];
+		// 	// 		return;
+		// 	// 	}
+		// 	// };
+			
+		// 	return;
+		// }
+
+		// if(evt.type == InputEvent::MouseButtonDown && evt.button.button == GLFW_MOUSE_BUTTON_RIGHT) {
+		// 	// //std::cout << "Tumble started." << std::endl;
+		// 	float init_x = evt.button.x;
+		// 	float init_y = evt.button.y;
+		// 	UserCamera init_camera = debug_camera;
+		// 	action = [this, init_x, init_y, init_camera](InputEvent const &evt) {
+		// 		if (evt.type == InputEvent::MouseButtonUp && evt.button.button == GLFW_MOUSE_BUTTON_RIGHT) {
+		// 			// cancel upon button lifted:
+		// 			action = nullptr;
+		// 			//std::cout << "Tumble ended." << std::endl;
+		// 			return;
+		// 		}
+		// 		if(evt.type == InputEvent::MouseMotion) {
+		// 			//Handle motion
+		// 			float dx = (evt.motion.x - init_x) / rtg.swapchain_extent.height; //why height not weight
+		// 			float dy = -(evt.motion.y - init_y) / rtg.swapchain_extent.height; 
+		// 			//rotate
+		// 			float speed = float(M_PI); //one full height == 180 
+		// 			// float flip_x = (std::abs(init_camera.elevation) > 0.5f * float(M_PI) ? -1.0f : 1.0f);
+		// 			debug_camera.rotation.y = init_camera.rotation.x - dx * speed;
+		// 			debug_camera.rotation.x = init_camera.rotation.y + dy * speed;
+		// 			// [-pi. pi]
+		// 			// const float twopi = 2.0f * float(M_PI);
+		// 			// debug_camera.rotation.y -= std::round(free_camera.azimuth / twopi) * twopi;
+		// 			// free_camera.elevation -= std::round(free_camera.elevation / twopi) * twopi;
+		// 			return;
+		// 		}
+		// 	};
+			
+		// 	return;
+		// }
 	}
 }
-
 
 void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 local_trans, std::vector<ObjectInstance> &objects){
 	//Print node information
@@ -1498,6 +1828,24 @@ void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 lo
 		objects.emplace_back(obj);
 		id++;
 		
+
+		//draw bouding box
+		if (camera_mode == CameraMode::Debug) {
+			auto corners = get_aabb_corners(it->second.min_aabb_bound, it->second.max_aabb_bound);
+			std::vector<PosColVertex> debug_vertices;
+			for (vec3 &corner : corners) {
+				vec4 transformed_corner = local_trans * vec4(corner, 1.0f);
+				debug_vertices.emplace_back(PosColVertex{
+					.Position{.x = transformed_corner.x, .y = transformed_corner.y, .z = transformed_corner.z},
+					.Color{.r = 0xff, .g = 0xff, .b = 0x00, .a = 0xff}
+				});
+			}
+
+			for (size_t i = 0; i < 24; i += 2) {
+				lines_vertices.emplace_back(debug_vertices[aabb_edges[i]]);
+				lines_vertices.emplace_back(debug_vertices[aabb_edges[i + 1]]);
+			}
+		}
 	}
 	if(node->environment != nullptr){
 		// std::cout << "Environment: " << node->environment->name;

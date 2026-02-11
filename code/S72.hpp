@@ -200,6 +200,7 @@ struct S72 {
 	//textures referenced by materials:
 	struct Texture {
 		std::string src; //src used in the s72 file
+		uint32_t index = 0;
 		enum class Type {
 			flat, //"2D" in the spec, but identifier can't start with a number
 			cube,

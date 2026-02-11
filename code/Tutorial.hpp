@@ -154,6 +154,8 @@ struct Tutorial : RTG::Application {
 	struct ObjectVertices{
 		uint32_t first = 0;
 		uint32_t count = 0;
+		vec3 min_aabb_bound = vec3(std::numeric_limits<float>::max());
+		vec3 max_aabb_bound = vec3(std::numeric_limits<float>::lowest());
 	};
 	//a performant way would be unordered_map<string, ObjectVertices>
 	std::unordered_map<std::string, ObjectVertices> object_vertices_list;
@@ -193,8 +195,6 @@ struct Tutorial : RTG::Application {
 		CameraMode_Count,
 	} camera_mode = CameraMode::Free;
 
-	S72::Camera* cur_scene_camera = nullptr;
-
 	struct OrbitCamera {
 		float target_x = 0.f, target_y = 0.f, target_z = 0.f;
 		float radius = 3.5f;
@@ -203,6 +203,8 @@ struct Tutorial : RTG::Application {
 		float fov = 60.f / 180.f * float(M_PI);
 		float near = 0.1f;
 		float far = 1000.0f;
+		mat4 proj = mat4(1.f);
+		mat4 view = mat4(1.f);
 	} free_camera;
 
 	struct UserCamera {
@@ -215,9 +217,19 @@ struct Tutorial : RTG::Application {
 	};
 	
 	UserCamera user_camera;
-	UserCamera debug_camera;
+	//UserCamera debug_camera;
+	OrbitCamera debug_camera;
+
+	S72::Camera* cur_scene_camera = nullptr;
+	std::variant<std::monostate, S72::Camera*, OrbitCamera*> previous_camera = std::monostate{};
 
 	mat4 CLIP_FROM_WORLD;
+	struct ViewportRect {
+    int32_t x;
+    int32_t y;
+    uint32_t width;
+    uint32_t height;
+	} viewport_rect;
 
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 	ObjectsPipeline::World world;
