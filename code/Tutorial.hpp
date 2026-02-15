@@ -188,12 +188,24 @@ struct Tutorial : RTG::Application {
 
 	float time = 0.0f;
 
+	// Animation playback state
+	float playback_time = 0.0f; // current animation playback position (seconds)
+	bool playback_playing = true; // whether animations advance with time
+
 	enum class CameraMode {
 		Scene = 0,
 		Free = 1,
 		Debug = 2,
 		CameraMode_Count,
 	} camera_mode = CameraMode::Free;
+
+	// Culling modes
+	enum class CullingMode {
+		None = 0,
+		Frustum = 1,
+	};
+
+	CullingMode culling_mode = CullingMode::None;
 
 	struct OrbitCamera {
 		float target_x = 0.f, target_y = 0.f, target_z = 0.f;
@@ -248,6 +260,7 @@ struct Tutorial : RTG::Application {
 	void traverse_children(S72 &s72, S72::Node* node, size_t &instanceIndex, mat4 local_trans, std::vector<ObjectInstance> &objects);
 	void fill_scene_graph(S72 &s72,  std::vector<ObjectInstance> &object_instances);
 	ObjectsPipeline::Transform makeInstanceData(mat4 world_from_local, uint32_t material_index);
+	bool aabb_intersects_frustum_SAT(const mat4& clip, const ObjectInstance& instance);
 
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:

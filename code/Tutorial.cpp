@@ -59,6 +59,18 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		}
 	}
 
+	// Initialize culling mode from configuration
+	{
+		std::string c = rtg.configuration.culling;
+		if (c == "none" || c == "") {
+			culling_mode = CullingMode::None;
+		} else if (c == "frustum") {
+			culling_mode = CullingMode::Frustum;
+		} else {
+			throw std::runtime_error("Unrecognized culling mode: " + c);
+		}
+	}
+
 	{
 		world.SKY_ENERGY.r = 0.0f;
 		world.SKY_ENERGY.g = 0.0f;
@@ -522,101 +534,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
 			}
 			
-			// {//dark grey / light grey checkerboard with a red square at the origin
-			// 	//make texture
-			// 	uint32_t size = 128;
-			// 	std::vector<uint32_t> data;
-			// 	data.reserve(size*size);
-			// 	for (uint32_t y = 0; y < size; ++y) {
-			// 		float fy = (y + 0.5f) / float(size);
-			// 		for (uint32_t x = 0; x < size; ++x) {
-			// 			float fx = (x + 0.5f) / float(size);
-			// 			if (fx < 0.05f && fy < 0.05f) {
-			// 				data.emplace_back(0xff0000ff); //red
-			// 			}
-			// 			else if ((fx < 0.5f) == (fy < 0.5f)) {
-			// 				data.emplace_back(0xff444444); //darkgery
-			// 			}
-			// 			else {
-			// 				data.emplace_back(0xffbbbbbb); //lightgrey
-			// 			}
-			// 		}
-			// 	}
-			// 	assert(data.size() == size*size);
-				
-			// 	//texture in GPU
-			// 	textures.emplace_back(rtg.helpers.create_image(
-			// 		VkExtent2D{.width = size, .height = size},
-			// 		VK_FORMAT_R8G8B8A8_UNORM,
-			// 		VK_IMAGE_TILING_OPTIMAL,
-			// 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			// 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			// 		Helpers::Unmapped
-			// 	));
-
-			// 	//transfer data
-			// 	rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-			// }
-
 			
-			// {//texture 1 will be a classic xor texture
-			// 	//make texture
-			// 	uint32_t size = 256;
-			// 	std::vector<uint32_t> data;
-			// 	data.reserve(size*size);
-			// 	for (uint32_t y = 0; y < size; ++y) {
-			// 		for (uint32_t x = 0; x < size; ++x) {
-			// 			uint8_t r = uint8_t(x) ^ uint8_t(y);
-			// 			uint8_t g = uint8_t(x+128) ^ uint8_t(y);
-			// 			uint8_t b = uint8_t(x) ^ uint8_t(y+27);
-			// 			uint8_t a = 0xff;
-			// 			data.emplace_back(uint32_t(r) | uint32_t(g) << 8 | uint32_t(b) << 16 | uint32_t(a) << 24); // ABGR
-
-			// 		}
-			// 	}
-			// 	assert(data.size() == size*size);
-				
-			// 	//texture in GPU
-			// 	textures.emplace_back(rtg.helpers.create_image(
-			// 		VkExtent2D{.width = size, .height = size},
-			// 		VK_FORMAT_R8G8B8A8_SRGB,
-			// 		VK_IMAGE_TILING_OPTIMAL,
-			// 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			// 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			// 		Helpers::Unmapped
-			// 	));
-
-			// 	//transfer data
-			// 	rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-			// } 
-		
-			// {//texture 2
-			// 	//make texture
-			// 	uint32_t size = 128;
-			// 	std::vector<uint32_t> data;
-			// 	data.reserve(size*size);
-			// 	for (uint32_t y = 0; y < size; ++y) {
-			// 		//float fy = (y + 0.5f) / float(size);
-			// 		for (uint32_t x = 0; x < size; ++x) {
-			// 			//float fx = (x + 0.5f) / float(size);
-			// 			data.emplace_back(0xffffd700);	
-			// 		}
-			// 	}
-			// 	assert(data.size() == size*size);
-				
-			// 	//texture in GPU
-			// 	textures.emplace_back(rtg.helpers.create_image(
-			// 		VkExtent2D{.width = size, .height = size},
-			// 		VK_FORMAT_R8G8B8A8_UNORM,
-			// 		VK_IMAGE_TILING_OPTIMAL,
-			// 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			// 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			// 		Helpers::Unmapped
-			// 	));
-
-			// 	//transfer data
-			// 	rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-			// }
 		}
 
 		{ //make image views for the textures
@@ -1373,6 +1291,11 @@ std::array<vec3, 8> get_camera_frustrum_corners(Tutorial::OrbitCamera const& cam
 void Tutorial::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
+	// advance animation playback time (only when playing)
+	if (playback_playing) {
+		playback_time += dt;
+	}
+
 	lines_vertices.clear();
 	viewport_rect = {0, 0, rtg.configuration.surface_extent.width, rtg.configuration.surface_extent.height};
 
@@ -1462,12 +1385,6 @@ void Tutorial::update(float dt) {
 					.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
 				});
 			}
-			// for (auto& corner : corners) {
-			// 	debug_vertices.emplace_back(PosColVertex{
-			// 		.Position{.x = corner.x, .y = corner.y, .z = corner.z},
-			// 		.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
-			// 	});
-			// }
 			for (size_t i = 0; i < 24; i += 2) {
 				lines_vertices.emplace_back(debug_vertices[aabb_edges[i]]);
 				lines_vertices.emplace_back(debug_vertices[aabb_edges[i + 1]]);
@@ -1480,69 +1397,40 @@ void Tutorial::update(float dt) {
 	{// make some objects:
 		object_instances.clear();
 		fill_scene_graph(s72, object_instances);
+
+		// Apply culling if requested
+		if (culling_mode == CullingMode::Frustum) {
+			mat4 cullClip = CLIP_FROM_WORLD;
+			if (camera_mode == CameraMode::Debug) {
+				// when in debug camera, cull as if rendering the previously-selected camera
+				if (auto *prev_cam_ptr = std::get_if<OrbitCamera*>(&previous_camera)) {
+					OrbitCamera *prev_cam = *prev_cam_ptr;
+					cullClip = prev_cam->proj * prev_cam->view;
+				} else if (auto *prev_scene_cam_ptr = std::get_if<S72::Camera*>(&previous_camera)) {
+					S72::Camera *prev_scene_cam = *prev_scene_cam_ptr;
+					if (auto *perspective_params = std::get_if<S72::Camera::Perspective>(&prev_scene_cam->projection)) {
+						mat4 proj = vulkan_perspective(
+							perspective_params->vfov,
+							perspective_params->aspect,
+							perspective_params->near,
+							perspective_params->far
+						);
+						mat4 view = glm::inverse(prev_scene_cam->transform);
+						cullClip = proj * view;
+					}
+				}
+			}
+
+			std::vector<ObjectInstance> filtered;
+			filtered.reserve(object_instances.size());
+			for (auto &inst : object_instances) {
+				if (aabb_intersects_frustum_SAT(cullClip, inst)) {
+					filtered.emplace_back(inst);
+				}
+			}
+			object_instances.swap(filtered);
+		}
 	}
-
-	// lines_vertices.clear();
-	// lines_vertices.reserve(4);
-	// lines_vertices.emplace_back(PosColVertex{
-	// 	.Position{.x = -1.f, .y = -1.f, .z = 0.f},
-	// 	.Color{.r = 0xff, .g = 0xff, .b = 0xff, .a = 0xff}
-	// });
-	// lines_vertices.emplace_back(PosColVertex{
-	// 	.Position{.x = 1.f, .y = 1.f, .z = 0.f},
-	// 	.Color{.r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff}
-	// });
-	// lines_vertices.emplace_back(PosColVertex{
-	// 	.Position{.x = -1.f, .y = 1.f, .z = 0.f},
-	// 	.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
-	// });
-	// lines_vertices.emplace_back(PosColVertex{
-	// 	.Position{.x = 1.f, .y = -1.f, .z = 0.f},
-	// 	.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
-	// });
-
-	// assert(lines_vertices.size() == 4);
-
-	// { //make some crossing lines at different depths:
-	// 	lines_vertices.clear();
-	// 	constexpr size_t count = 2 * 30 + 2 * 30;
-	// 	lines_vertices.reserve(count);
-	// 	//horizontal lines at z = 0.5f:
-	// 	for (uint32_t i = 0; i < 30; ++i) {
-	// 		float y = (i + 0.5f) / 30.0f * 2.0f - 1.0f;
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = -1.0f, .y = y, .z = 0.5f},
-	// 			.Color{ .r = 0xff, .g = 0xff, .b = 0x00, .a = 0xff},
-	// 		});
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = 1.0f, .y = y, .z = 0.5f},
-	// 			.Color{ .r = 0xff, .g = 0xff, .b = 0x00, .a = 0xff},
-	// 		});
-	// 	}
-	// 	//vertical lines at z = 0.0f (near) through 1.0f (far):
-	// 	for (uint32_t i = 0; i < 30; ++i) {
-	// 		float x = (i + 0.5f) / 30.0f * 2.0f - 1.0f;
-	// 		float z = (i + 0.5f) / 30.0f;
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = x, .y =-1.0f, .z = z},
-	// 			.Color{ .r = 0x44, .g = 0x00, .b = 0xff, .a = 0xff},
-	// 		});
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = x, .y = 1.0f, .z = z},
-	// 			.Color{ .r = 0x44, .g = 0x00, .b = 0xff, .a = 0xff},
-	// 		});
-	// 	}
-	// 	assert(lines_vertices.size() == count);
-	// }
-
-	// for(PosColVertex &v : lines_vertices) {
-	// 	vec4 res = CLIP_FROM_WORLD * vec4{v.Position.x, v.Position.y, v.Position.z, 1.0f};
-	// 	v.Position.x = res[0] / res[3];
-	// 	v.Position.y = res[1] / res[3];
-	// 	v.Position.z = res[2] / res[3];
-	// }
-
-
 }
 
 
@@ -1576,6 +1464,16 @@ void Tutorial::on_input(InputEvent const &evt) {
 			it = s72.cameras.begin();
 		cur_scene_camera = &it->second;
 		//std::cout << "Current Scene Camera Updated: " <<  << std::endl;
+		return;
+	}
+
+	// Animation playback controls: Space toggles play/pause, R restarts
+	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_SPACE) {
+		playback_playing = !playback_playing;
+		return;
+	}
+	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_R) {
+		playback_time = 0.0f;
 		return;
 	}
 
@@ -1904,3 +1802,134 @@ Tutorial::ObjectsPipeline::Transform Tutorial::makeInstanceData(mat4 world_from_
 		.MATERIAL_INDEX = material_index,
 	};
 }
+
+bool overlapsOnAxis(
+    const vec3& axis,
+    const std::array<vec3, 8>& _frustumCorners,
+    const std::array<vec3, 8>& _boxCorners
+) {
+    // Ignore degenerate axis
+    float len2 = glm::dot(axis, axis);
+    if (len2 < 1e-8f)
+        return true; // treat as non-separating
+
+    glm::vec3 n = glm::normalize(axis);
+
+    // Project frustum
+    float frMin =  std::numeric_limits<float>::infinity();
+    float frMax = -std::numeric_limits<float>::infinity();
+    for (int i = 0; i < 8; ++i) {
+        float d = glm::dot(_frustumCorners[i], n);
+        frMin = std::min(frMin, d);
+        frMax = std::max(frMax, d);
+    }
+
+    // Project box
+    float bxMin =  std::numeric_limits<float>::infinity();
+    float bxMax = -std::numeric_limits<float>::infinity();
+    for (int i = 0; i < 8; ++i) {
+        float d = glm::dot(_boxCorners[i], n);
+        bxMin = std::min(bxMin, d);
+        bxMax = std::max(bxMax, d);
+    }
+
+    // Interval overlap test
+    // [frMin, frMax] vs [bxMin, bxMax]
+    if (bxMax < frMin || bxMin > frMax)
+        return false; // separating axis found
+
+    return true; // overlap on this axis
+}
+
+
+bool Tutorial::aabb_intersects_frustum_SAT(const mat4& clip, const ObjectInstance& instance) {
+	// --- 1. Frustum face normals from clip (column-major) ---
+    vec3 frustumNormals[6] = {
+        vec3(clip[0][3] + clip[0][0], clip[1][3] + clip[1][0], clip[2][3] + clip[2][0]), // left
+        vec3(clip[0][3] - clip[0][0], clip[1][3] - clip[1][0], clip[2][3] - clip[2][0]), // right
+        vec3(clip[0][3] + clip[0][1], clip[1][3] + clip[1][1], clip[2][3] + clip[2][1]), // bottom
+        vec3(clip[0][3] - clip[0][1], clip[1][3] - clip[1][1], clip[2][3] - clip[2][1]), // top
+        vec3(clip[0][3] + clip[0][2], clip[1][3] + clip[1][2], clip[2][3] + clip[2][2]), // near
+        vec3(clip[0][3] - clip[0][2], clip[1][3] - clip[1][2], clip[2][3] - clip[2][2])  // far
+    };
+
+    // Normalize and discard nearly-parallel duplicates (keep 5)
+    std::vector<vec3> axes;
+    axes.reserve(5 + 3 + 18);
+
+    auto addAxisIfUnique = [&](const vec3& a, std::vector<vec3>& axes_list) {
+        float len2 = glm::dot(a, a);
+        if (len2 < 1e-8f) return;
+        vec3 n = glm::normalize(a);
+        for (auto& u : axes_list) {
+            float d = std::abs(glm::dot(u, n));
+            if (d > 0.999f) // almost parallel
+                return;
+        }
+        axes_list.emplace_back(n);
+    };
+
+    // Add frustum face normals (should give you 5 unique)
+    for (int i = 0; i < 6; ++i) {
+		addAxisIfUnique(frustumNormals[i], axes);
+	}
+	assert(axes.size() <= 5 && "Expected at most 5 unique frustum normals");
+        
+    // --- 2. Box face normals (in world space) ---
+	const mat4& world_from_local = instance.transform.WORLD_FROM_LOCAL;
+
+    // Transform local axes to world
+    vec3 boxAxesWorld[3] = {
+        glm::normalize(vec3(world_from_local[0])),
+        glm::normalize(vec3(world_from_local[1])),
+        glm::normalize(vec3(world_from_local[2]))
+    };
+
+    for (int i = 0; i < 3; ++i) {
+		axes.emplace_back(boxAxesWorld[i]);
+	}
+
+    // --- 3. Edge directions for frustum and box (for cross products) ---
+
+    // Frustum edges: directions of intersections between pairs of planes.
+    std::array<vec3, 8> frustum_corners = get_frustum_corners_view_space(clip);
+	std::vector<vec3> frustumEdges;
+	for (size_t i = 0; i < 24; i += 2) {
+		addAxisIfUnique((frustum_corners[aabb_edges[i + 1]] - frustum_corners[aabb_edges[i]]), frustumEdges);
+	}
+	assert(frustumEdges.size() <= 6 && "Expected at most 6 unique frustum edges");
+
+    // Box edges: its local axes transformed (3 unique, signs don’t matter for cross)
+    vec3 boxEdges[3] = {
+        boxAxesWorld[0],
+        boxAxesWorld[1],
+        boxAxesWorld[2]
+    };
+
+    // --- 4. Cross-product axes (frustum edges × box edges) ---
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            vec3 c = glm::normalize(glm::cross(frustumEdges[i], boxEdges[j]));
+            axes.emplace_back(c);
+        }
+    }
+
+	// box corners in world space
+	std::array<vec3, 8> boxCorners;
+	auto corners = get_aabb_corners(instance.vertices.min_aabb_bound, instance.vertices.max_aabb_bound);
+	for (vec3 &corner : corners) {
+		vec4 transformed_corner = world_from_local * vec4(corner, 1.0f);
+		boxCorners[&corner - &corners[0]] = vec3(transformed_corner);
+	}
+
+    // --- 5. SAT on all axes ---
+    for (const vec3& axis : axes) {
+        if (!overlapsOnAxis(axis, frustum_corners, boxCorners))
+            return false; // separating axis found
+    }
+
+    return true; // no separating axis -> intersection
+}
+
+
+

@@ -84,6 +84,9 @@ struct RTG {
 		// `--camera <name>` command-line flag
 		std::string camera_name = "";
 
+		//culling mode: "none" or "frustum"
+		std::string culling = "none";
+
 		//for configuration construction + management:
 		Configuration() = default;
 		void parse(int argc, char **argv); //parse command-line options; throws on error
