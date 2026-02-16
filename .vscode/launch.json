@@ -2,16 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Build (node maekfile.js) and Launch viewer.exe",
+      "name": "Launch viewer.exe",
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceFolder}\\code\\bin\\viewer.exe",
       "args": [
         "--scene",
-        "report\\examples\\sg-Articulation.s72",
+        "report\\examples\\sphereflake.s72",
         // "--camera",
         // "Arm-Camera",
-        "--print"
+        //"--print"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",

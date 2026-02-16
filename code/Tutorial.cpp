@@ -2,6 +2,7 @@
 
 #include "VK.hpp"
 #include "S72.hpp"
+#include "Timer.hpp"
 //#include "refsol.hpp"
 
 #include <GLFW/glfw3.h>
@@ -15,6 +16,9 @@
 #include <cstring>
 #include <iostream>
 #include <fstream>
+#include <numeric>
+#include <memory>
+#include <algorithm>
 
 void flip_image_y_inplace_rgba(uint8_t* pixels, int width, int height)
 {
@@ -280,7 +284,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		}	
 		
 		{//Material
-			size_t matCount = s72.materials.size();
+			size_t matCount = std::max(size_t(1), s72.materials.size());
 			workspace.Material_src = rtg.helpers.create_buffer(
 					sizeof(ObjectsPipeline::Material) * matCount,
 					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -366,38 +370,65 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		}
 	}
 
+	// Create a query pool for GPU timestamp measurements (two timestamps per workspace)
+	if (!workspaces.empty()) {
+		VkQueryPoolCreateInfo qp_info{
+			.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.queryType = VK_QUERY_TYPE_TIMESTAMP,
+			.queryCount = uint32_t(workspaces.size() * 2),
+			.pipelineStatistics = 0,
+		};
+		VK(vkCreateQueryPool(rtg.device, &qp_info, nullptr, &query_pool));
+
+		// assign query indices per workspace
+		for (size_t i = 0; i < workspaces.size(); ++i) {
+			workspaces[i].query_index = uint32_t(i * 2);
+		}
+
+		// get timestampPeriod from physical device limits
+		VkPhysicalDeviceProperties props;
+		vkGetPhysicalDeviceProperties(rtg.physical_device, &props);
+		timestampPeriodNs = double(props.limits.timestampPeriod);
+	}
+
 	{//Material
-		materials.assign(s72.materials.size(), ObjectsPipeline::Material{
+		if (s72.materials.size() > 0) {
+			materials.assign(s72.materials.size(), ObjectsPipeline::Material{
 			.albedo = vec4(1.0f, 0.0f, 1.0f, 0.0f), // test purple color
 			.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
-		});
-		for (auto const &pair : s72.materials) {
-			const S72::Material& mat = pair.second; 
-			ObjectsPipeline::Material& mat_out = materials[mat.index];
-			if (auto* p = std::get_if<S72::Material::PBR>(&mat.brdf)) {
-				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_PBR;
-				//TODO
-			} else if (auto* l = std::get_if<S72::Material::Lambertian>(&mat.brdf)) {
-				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN;
-				if (auto* albedo =  std::get_if<S72::color>(&l->albedo)) {
-					mat_out.albedo = vec4(albedo->r, albedo->g, albedo->b, 1.0f);
-				} else if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&l->albedo)){
-					mat_out.hasAlbedoTex = 1;
-					mat_out.albedoTexIndex = 0; //TODO: Set tex id
+			});
+			for (auto const &pair : s72.materials) {
+				const S72::Material& mat = pair.second; 
+				ObjectsPipeline::Material& mat_out = materials[mat.index];
+				if (auto* p = std::get_if<S72::Material::PBR>(&mat.brdf)) {
+					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_PBR;
+					//TODO
+				} else if (auto* l = std::get_if<S72::Material::Lambertian>(&mat.brdf)) {
+					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN;
+					if (auto* albedo =  std::get_if<S72::color>(&l->albedo)) {
+						mat_out.albedo = vec4(albedo->r, albedo->g, albedo->b, 1.0f);
+					} else if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&l->albedo)){
+						mat_out.hasAlbedoTex = 1;
+						mat_out.albedoTexIndex = 0; //TODO: Set tex id
+					}
+				} else if (auto* m = std::get_if<S72::Material::Mirror>(&mat.brdf)) {
+					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_MIRROR;
+					//TODO
+				} else if (auto* e = std::get_if<S72::Material::Environment>(&mat.brdf)) {
+					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_ENVIRONMENT;
+					//TODO
 				}
-			} else if (auto* m = std::get_if<S72::Material::Mirror>(&mat.brdf)) {
-				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_MIRROR;
-				//TODO
-			} else if (auto* e = std::get_if<S72::Material::Environment>(&mat.brdf)) {
-				mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_ENVIRONMENT;
-				//TODO
 			}
-			
+		} else {
+			materials.emplace_back(ObjectsPipeline::Material{
+				.albedo = vec4(0.8f, 0.8f, 0.8f, 0.0f), // default grey color
+				.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
+			});
 		}
-		// materials.emplace_back(ObjectsPipeline::Material{
-		// 	.albedo = vec4(1.0f, 0.0f, 0.0f, 0.0f), // test red color
-		// 	.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
-		// });
+		
+		
 	}
 
 	{ //objects
@@ -734,6 +765,32 @@ Tutorial::~Tutorial() {
 	lines_pipeline.destroy(rtg);
 	objects_pipeline.destroy(rtg);
 
+	if (query_pool) {
+		vkDestroyQueryPool(rtg.device, query_pool, nullptr);
+		query_pool = VK_NULL_HANDLE;
+	}
+
+	// Export collected stats to CSV
+	if (!stats_map.empty()) {
+		std::ofstream csv("frame_times.csv");
+		if (csv) {
+			csv << "frame,cpu_ms,gpu_us\n";
+			// sort by frame index
+			std::vector<uint64_t> frames;
+			frames.reserve(stats_map.size());
+			for (auto const &p : stats_map) frames.push_back(p.first);
+			std::sort(frames.begin(), frames.end());
+			for (uint64_t f : frames) {
+				FrameStats const &fs = stats_map[f];
+				csv << fs.frame << "," << fs.cpu << "," << fs.gpu << "\n";
+			}
+			csv.close();
+			std::cout << "Wrote frame_times.csv (" << stats_map.size() << " entries)" << std::endl;
+		} else {
+			std::cerr << "Failed to open frame_times.csv for writing." << std::endl;
+		}
+	}
+
 	if(descriptor_pool) {
 		vkDestroyDescriptorPool(rtg.device, descriptor_pool, nullptr);
 		descriptor_pool = nullptr;
@@ -828,6 +885,17 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	Workspace &workspace = workspaces[render_params.workspace_index];
 	VkFramebuffer framebuffer = swapchain_framebuffers[render_params.image_index];
 
+	// start-of-frame bookkeeping: increment frame counter and create a Timer
+	static std::unique_ptr< Timer > timer;
+	uint64_t this_frame = ++frame_counter;
+	timer.reset(new Timer([this, this_frame](double elapsed){
+		FrameStats &fs = stats_map[this_frame];
+		fs.frame = this_frame;
+		fs.cpu = elapsed * 1e3;
+		cpu_times.push_back((elapsed * 1e3));
+		if (cpu_times.size() > 1000) cpu_times.erase(cpu_times.begin(), cpu_times.begin() + (cpu_times.size() - 1000));
+	}));
+
 	//record (into `workspace.command_buffer`) commands that run a `render_pass` that just clears `framebuffer`:
 	//refsol::Tutorial_render_record_blank_frame(rtg, render_pass, framebuffer, &workspace.command_buffer);
 
@@ -841,6 +909,14 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 		};
 		VK(vkBeginCommandBuffer(workspace.command_buffer, &begin_info));
+	}
+
+	// reset and write a start timestamp for GPU timing (two queries per workspace)
+	if (query_pool != VK_NULL_HANDLE) {
+		vkCmdResetQueryPool(workspace.command_buffer, query_pool, workspace.query_index, 2);
+		vkCmdWriteTimestamp(workspace.command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, workspace.query_index);
+		// associate this workspace query with the current global frame index
+		query_to_frame[workspace.query_index] = this_frame;
 	}
 
 	if (!lines_vertices.empty()) {
@@ -1154,6 +1230,10 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 
 		vkCmdEndRenderPass(workspace.command_buffer);
+		// write end timestamp for GPU timing
+		if (query_pool != VK_NULL_HANDLE) {
+			vkCmdWriteTimestamp(workspace.command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, workspace.query_index + 1);
+		}
 		
 	}
 
@@ -1186,6 +1266,38 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		};
 
 		VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, render_params.workspace_available));
+		// Read back GPU timestamp results (blocking wait) and store GPU time in seconds
+		if (query_pool != VK_NULL_HANDLE) {
+			uint64_t timestamps[2] = {0,0};
+			VkResult r = vkGetQueryPoolResults(rtg.device, query_pool, workspace.query_index, 2, sizeof(timestamps), timestamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+			if (r == VK_SUCCESS) {
+				uint64_t delta = timestamps[1] - timestamps[0];
+				double gpuSec = double(delta) * timestampPeriodNs * 1e-3; // timestampPeriodNs is nanoseconds per tick
+				// associate gpu time with the frame index recorded when writing the start timestamp
+				auto it = query_to_frame.find(workspace.query_index);
+				if (it != query_to_frame.end()) {
+					uint64_t frame = it->second;
+					FrameStats &fs = stats_map[frame];
+					fs.frame = frame;
+					fs.gpu = gpuSec;
+				}
+				gpu_times.push_back(gpuSec);
+				if (gpu_times.size() > 1000) gpu_times.erase(gpu_times.begin(), gpu_times.begin() + (gpu_times.size() - 1000));
+				// periodic summary every 60 frames
+				stats_frame_counter++;
+				if ((stats_frame_counter % 60) == 0) {
+					size_t n = std::min<size_t>(60, gpu_times.size());
+					double sum_gpu = std::accumulate(gpu_times.end() - n, gpu_times.end(), 0.0);
+					double avg_gpu = sum_gpu / double(n);
+					size_t m = std::min<size_t>(60, cpu_times.size());
+					double sum_cpu = (m>0) ? std::accumulate(cpu_times.end() - m, cpu_times.end(), 0.0) : 0.0;
+					double avg_cpu = (m>0) ? (sum_cpu / double(m)) : 0.0;
+					std::cout << "PERF avg(last " << n << ") cpu: " << avg_cpu << " ms, gpu: " << avg_gpu << " us, FPS: " << (1000.0 / avg_cpu) << std::endl;
+				}
+			} else {
+				std::cerr << "WARNING: vkGetQueryPoolResults returned " << string_VkResult(r) << std::endl;
+			}
+		}
 	}
 }
 
@@ -1222,7 +1334,7 @@ static const std::array<vec3, 8> clipCorners = {
     glm::vec3(-1.f, -1.f, 1.f)  // far bottom-left
 };
 
-std::array<glm::vec3, 8> get_frustum_corners_view_space(const glm::mat4& proj)
+std::array<glm::vec3, 8> get_frustum_corners_trans(const glm::mat4& proj)
 {
     glm::mat4 invProj = glm::inverse(proj);
     std::array<glm::vec3, 8> viewCorners;
@@ -1289,6 +1401,7 @@ std::array<vec3, 8> get_camera_frustrum_corners(Tutorial::OrbitCamera const& cam
 }
 
 void Tutorial::update(float dt) {
+	// CPU timing moved to render(); update() just advances state
 	time = std::fmod(time + dt, 60.0f);
 
 	// advance animation playback time (only when playing)
@@ -1334,6 +1447,7 @@ void Tutorial::update(float dt) {
 			throw std::runtime_error("Failed to get Scene Camera Params");
 		}
 	} else if (camera_mode == CameraMode::Free) {
+		viewport_rect = {0, 0, rtg.configuration.surface_extent.width, rtg.configuration.surface_extent.height};
 		free_camera.proj = vulkan_perspective(
 			free_camera.fov,
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
@@ -1347,6 +1461,7 @@ void Tutorial::update(float dt) {
 
 		CLIP_FROM_WORLD = free_camera.proj * free_camera.view;
 	} else if (camera_mode == CameraMode::Debug) {
+		viewport_rect = {0, 0, rtg.configuration.surface_extent.width, rtg.configuration.surface_extent.height};
 		// mat4 proj = vulkan_perspective(
 		// debug_camera.fov,
 		// rtg.swapchain_extent.width / float(rtg.swapchain_extent.height),
@@ -1377,7 +1492,7 @@ void Tutorial::update(float dt) {
 			// 	*prev_cam,
 			// 	rtg.swapchain_extent.width / float(rtg.swapchain_extent.height)
 			// );
-			std::array<vec3, 8> corners = get_frustum_corners_view_space(prev_cam->proj);
+			std::array<vec3, 8> corners = get_frustum_corners_trans(prev_cam->proj);
 			for (auto& corner : corners) {
 				vec4 transformed_corner = glm::inverse(prev_cam->view) * vec4(corner, 1.f);
 				debug_vertices.emplace_back(PosColVertex{
@@ -1389,10 +1504,33 @@ void Tutorial::update(float dt) {
 				lines_vertices.emplace_back(debug_vertices[aabb_edges[i]]);
 				lines_vertices.emplace_back(debug_vertices[aabb_edges[i + 1]]);
 			}
+		} else if (auto* prev_scene_cam_ptr = std::get_if<S72::Camera*>(&previous_camera)) {
+			S72::Camera* prev_scene_cam = *prev_scene_cam_ptr;
+			std::vector<PosColVertex> debug_vertices;
+			if (auto* perspective_params = std::get_if<S72::Camera::Perspective>(&prev_scene_cam->projection)) {
+				mat4 proj = vulkan_perspective(
+				perspective_params->vfov,
+				perspective_params->aspect,
+				perspective_params->near,
+				perspective_params->far);
+				std::array<vec3, 8> corners = get_frustum_corners_trans(proj);
+				for (auto& corner : corners) {
+					vec4 transformed_corner = prev_scene_cam->transform * vec4(corner, 1.f);
+					debug_vertices.emplace_back(PosColVertex{
+						.Position{.x = transformed_corner.x, .y = transformed_corner.y, .z = transformed_corner.z},
+						.Color{.r = 0x00, .g = 0x00, .b = 0xff, .a = 0xff}
+					});
+				}
+				for (size_t i = 0; i < 24; i += 2) {
+					lines_vertices.emplace_back(debug_vertices[aabb_edges[i]]);
+					lines_vertices.emplace_back(debug_vertices[aabb_edges[i + 1]]);
+				}
+			}
 		}
 	} else {
 		assert(0 && "only three camera modes");
 	}
+	
 
 	{// make some objects:
 		object_instances.clear();
@@ -1529,6 +1667,19 @@ void Tutorial::on_input(InputEvent const &evt) {
 			previous_camera = &debug_camera;
 		}
 		camera_mode = CameraMode((int(camera_mode) + 1) % uint8_t(CameraMode::CameraMode_Count));
+		//std::cout << "CameraMode Updated: " << int(camera_mode) << std::endl;
+		return;
+	}
+	if (evt.type == InputEvent::KeyDown && evt.key.key == GLFW_KEY_D) {
+		//switch camera modes
+		if (camera_mode == CameraMode::Scene) {
+			previous_camera = cur_scene_camera;
+		} else if (camera_mode == CameraMode::Free) {
+			previous_camera = &free_camera;
+		} else if (camera_mode == CameraMode::Debug) {
+			previous_camera = &debug_camera;
+		}
+		camera_mode = CameraMode::Debug;
 		//std::cout << "CameraMode Updated: " << int(camera_mode) << std::endl;
 		return;
 	}
@@ -1970,7 +2121,7 @@ bool Tutorial::aabb_intersects_frustum_SAT(const mat4& clip, const ObjectInstanc
     // --- 3. Edge directions for frustum and box (for cross products) ---
 
     // Frustum edges: directions of intersections between pairs of planes.
-    std::array<vec3, 8> frustum_corners = get_frustum_corners_view_space(clip);
+    std::array<vec3, 8> frustum_corners = get_frustum_corners_trans(clip);
 	std::vector<vec3> frustumEdges;
 	for (size_t i = 0; i < 24; i += 2) {
 		addAxisIfUnique((frustum_corners[aabb_edges[i + 1]] - frustum_corners[aabb_edges[i]]), frustumEdges);

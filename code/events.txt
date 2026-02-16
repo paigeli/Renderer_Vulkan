@@ -1,1 +1,11 @@
-AVAILABLE 1.0 saves/test0.ppm
+AVAILABLE 0.003 saves/monkey0.ppm
+AVAILABLE 0.003 saves/monkey1.ppm
+AVAILABLE 0.003 saves/monkey2.ppm
+AVAILABLE 0.003 saves/monkey3.ppm
+AVAILABLE 0.003 saves/monkey4.ppm
+AVAILABLE 0.003 saves/monkey5.ppm
+AVAILABLE 0.003 saves/monkey6.ppm
+AVAILABLE 0.003 saves/monkey7.ppm
+AVAILABLE 0.003 saves/monkey8.ppm
+AVAILABLE 0.003 saves/monkey9.ppm
+AVAILABLE 0.003 saves/monkey10.ppm

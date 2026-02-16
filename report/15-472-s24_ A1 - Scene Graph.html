@@ -99,185 +99,204 @@ code var {
 </head>
 <body>
 <h1>A1: Scene Viewer
-<span class="subtitle">by <span class="placeholder">Jim McCann (jmccann)</span></span>
+<span class="subtitle">by Paige Li</span>
 </h1>
 
-<!-- of course, delete these class="placeholder" notes in your report: -->
-
-<p class="placeholder">
-Summarize, in about one paragraph, your approach to the scene graph assignment.
-How did you structure your code?
-What's cool about it? Are there parts you weren't able to complete?
+<p>
+I built on the tutorial code, with a renaming main.cpp to viewer.cpp and changed application's name to "Scene Viewer" and meakfile to output viewer.exe. Loading code is extended on the example loader. I included stb_image and glm for external library. My scene objects is stored in Tutorial. The loader resolves names and data-file paths while the `Tutorial` class converts the parsed scene into GPU resources, handling materials, textures, and per-instance transforms.
 </p>
 
 <h2>My Animation <span class="atag creative">A1-create</span></h2>
 
-<p class="placeholder">
-Describe your animation and include a screen recording showing it running in real-time:
+<p>
+The demonstrated scene is a simulation of a wind power generation site. It was created in Blender and exported to the s72 format. The scene includes:
+
+A ground plane.
+Several cube objects scattered across the terrain.
+Three animated windmills that rotate to demonstrate the animation capabilities of the viewer.
 </p>
 
-<video>
-<!--
-  you can use the 'video' element to show your code running
-  Learn more at:
-    https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video
-
-  Example: put the video file in a path near this .html
-  <source src="path/to/video" type="video/mp4" />
--->
+<video controls width="600">
+  <source src="../animation/animation.mp4" type="video/mp4">
 </video>
 
-<p class="placeholder">
-Describe how you created your animation.
+<p>
+I created the 3D assets in Blender. I organized the windmills and cubes into a collection and used the export-s72.py script to generate the scene and buffer files. I ensured that the normal vectors were correctly oriented to avoid lighting artifacts. I ensured the materials naming and type follow the exporter's requiremewnt for lambertian BRDF. The animation of the windmills is achieved by keyframing their rotation in Blender, which is then exported as driver data in the s72 file. The resulting scene demonstrates both static geometry and dynamic animation, showcasing the capabilities of the scene viewer.
 </p>
 
 <h2>Using the Scene Viewer</h2>
 
-<p class="placeholder">Provide a short overview of how to use your viewer.</p>
+<p>Run the built `viewer` and pass an `.s72` scene via `--scene`. The viewer supports headless/export modes and prints scene info with `--print`.</p>
 
 <h3>Command-line Arguments</h3>
 
-<p class="placeholder">
-Document the command-line arguments that can be used to control your viewer.
-Include both the command-line arguments required by the assignment statement and any additional arguments you decided to add.
+<p>
+Important command-line arguments (via `RTG::Configuration`):
 </p>
 
 <ul>
-<li class="placeholder"><code>--scene <var>scene.s72</var></code> -- required -- load scene from <code><var>scene.s72</var></code></li>
-<li class="placeholder">...</li>
+<li><code>--scene &lt;path.s72&gt;</code> — required to load an s72 scene (`RTG::Configuration::scene_file`).</li>
+<li><code>--camera &lt;name&gt;</code> — select a scene camera by name (`RTG::Configuration::camera_name`).</li>
+<li><code>--culling &lt;none|frustum&gt;</code> — choose culling mode (`RTG::Configuration::culling`).</li>
+<li><code>--print</code> — print scene info and scene graph (uses `rtg.helpers.print_scene_info` / `print_scene_graph`).</li>
+<li><code>--headless</code> — run without a window and save frames to files.</li>
+<li><code>--drawing-size &lt;w&gt; &lt;h&gt;</code> — request surface size.</li>
+<li><code>--physical-device &lt;name&gt;</code> — Run on the named physical device.</li>
 </ul>
 
 <h3>Controls</h3>
 
-<p class="placeholder">
-Document the keyboard and mouse controls used to control your viewer when run interactively.
-Note that the controls below are placeholders not requirements.
+<p>
+Primary interactive controls are implemented in `Tutorial::on_input`:
 </p>
 
 <ul>
-<li class="placeholder"><kbd>LMB+Drag</kbd> orbit the camera.</li>
-<li class="placeholder"><kbd>TAB</kbd> switch cameras.</li>
-<li class="placeholder">...</li>
+<li><kbd>TAB</kbd> — cycle camera mode: Scene &rarr; Free &rarr; Debug (`Tutorial::on_input`).</li>
+<li><kbd>Right Arrow</kbd> — cycle scene cameras when in Scene mode.</li>
+<li><kbd>Space</kbd> — toggle animation playback (play/pause).</li>
+<li><kbd>R</kbd> — restart animation playback to time 0.</li>
+<li><kbd>LMB + drag</kbd> — tumble/orbit the free/debug camera; <kbd>Shift</kbd>+<kbd>LMB</kbd> pans.</li>
+<li><kbd>Mouse wheel</kbd> — dolly/zoom in Free and Debug cameras.</li>
 </ul>
 
 
 <h2>Evidence</h2>
 
-<p class="placeholder">
-The purpose of this section is to get you to think critically about your code by providing evidence sufficient to demonstrate to course staff that it works.
-These thoughts may also help you improve the code as you work on it in A2 and beyond.
+<p>
+This section points to the code and runtime evidence demonstrating the implemented features: file names and functions below reference where behavior is implemented and how to reproduce results.
 </p>
 
 
 <h3>Scene Loading <span class="atag">A1-load</span></h3>
 
-<p class="placeholder">
-Describe, in a few sentences, how your loading code works.
-Reference function and structure names for us to examine.
+<p>
+Scene parsing is performed by `S72::load` (see `code/S72.hpp`/`code/S72.cpp`). The loader builds in-memory objects matching the s72 spec: `S72::Node`, `S72::Mesh`, `S72::Camera`, `S72::Material`, `S72::Texture`, and `S72::Driver`. Data-file paths are resolved relative to the scene file and stored in `S72::DataFile::path`. The `Tutorial` constructor calls `S72::load(rtg.configuration.scene_file)` and then inspects `s72` to create GPU resources.
 </p>
 
-<p class="placeholder">
-(If you have <span class="atag">A1-show</span> working, you don't need to provide further evidence here. If you do not, provide some sort of print-outs or other scene statistics to prove that your code can load s72 scenes.)
+<p>
+Runtime printing is available with `--print`; the viewer calls `rtg.helpers.print_scene_info(s72)` and `rtg.helpers.print_scene_graph(s72)` right after loading (see `Tutorial::Tutorial`). If loading fails an exception with the filename and error is printed to stderr.
 </p>
 
 <h3>Scene Display <span class="atag">A1-show</span></h3>
-<p class="placeholder">
-Describe, in a few sentences, how your display code goes from your internal scene graph representation to triangles being drawn by the GPU.
-Provide function and structure names for us to examine.
+<p>
+Rendering uses three pipelines implemented in `Tutorial`: `BackgroundPipeline`, `LinesPipeline`, and `ObjectsPipeline` (declarations in `code/Tutorial.hpp`, creation in `Tutorial::Tutorial`). 
+Mesh attribute data is read from `S72::Mesh::Attribute` data files and uploaded into a single vertex buffer; per-instance transforms and per-instance material index are written into storage buffer which the `ObjectsPipeline` shaders consume; 
+I also added a storage buffer for all unique material data in the scene. In this case the frag shader can find repsective material from material buffer through material index. 
+The main render loop is `Tutorial::render` which builds per-frame command buffers, uploads camera/world/material/transform buffers (instance data buffers)/texture and sampler, and issues draw calls for lines and object instances.
 </p>
 
-<p class="placeholder">
-Provide evidence that your code can display s72 scenes.
-Good evidence: screen shots or movies showing that example scene files load correctly.
-Choose or generate example scene files sufficient to demonstrate all required features (note that the simplifying assumptions in the assignment mean you do not need to completely implement s72).
+<p>
+[Including evidence from A1 check-in point] To verify rendering: run the viewer with `--scene reports/examples/sg-articulation.s72` and `--scene reports/examples/origin-check.s72`; Example .s72 files from `report/examples/` can be used to test features.
 </p>
-<p class="placeholder">
-Spend some time thinking about corner cases that the provided examples may not test.
-If you develop a test case for these, include the s72 and b72 files with your report as well.
+<video controls width="600">
+  <source src="./A1-0.mp4" type="video/mp4">
+</video>
+<video controls width="600">
+  <source src="./A1-1.mp4" type="video/mp4">
+</video>
+<p>
+Corner cases handled: missing textures fall back to a generated checkerboard; meshes with different attribute layouts are validated by attribute lookup when building vertices (errors thrown if attributes missing). 
+missing materials fall back to a default material (lambertian:grey).
 </p>
 
 <h3>Scene Display — Interaction <span class="atag">A1-show</span></h3>
 
-<p class="placeholder">
-Describe how your code handles camera handling and switching.
+<p>
+Camera handling: `Tutorial` exposes three camera modes (Scene, Free, Debug) via `Tutorial::CameraMode`. Scene cameras are read from `s72.cameras` and their transforms are applied (`s72.cameras[name].transform`). Free and Debug cameras are orbit-style controls implemented with `vulkan_orbit` helpers; switching is handled by `Tutorial::on_input` (Tab key) and the active `CLIP_FROM_WORLD` matrix is computed in `Tutorial::update`.
+Noticebly, as I used glm library, to adapt for vulkan, I filp the Y axis in the projection matrix (see `mat4.hpp vulkan_perspective`) to account for vulkan's coordinate system. Also I used right-handed coordinate system API and depth buffer is from 0 to 1  (glm::perspectiveRH_ZO & glm::lookAtRH)
 </p>
 
-<p class="placeholder">
-Provide evidence that these interactions work.
-Possible evidence: a screen recording showing debug, user, and scene camera switching and interactive movement of the debug and user cameras.
+<p>
+Evidence: Refer to above videos which were included in the A1 check-in point. Pillarbox and letterbox rendering of the scene demonstrates correct aspect ratio handling. The origin check scene shows the coordinate axes and confirms correct camera/world transformations. The articulation scene demonstrates loading and rendering of a more complex scene with multiple objects and cameras.
 </p>
 
 <h3>Frustum culling <span class="atag">A1-cull</span></h3>
 
-<p class="placeholder">
-Describe, in a few sentences,
-where your culling test is implemented;
-how you computed bounding boxes and the camera frustum;
-and the approach you used in your box-frustum test (draw and include a picture if it makes your explanation easier).
-Include references to specific functions and structures in your code for us to examine further.
+<p>
+Frustum culling is implemented in `Tutorial::aabb_intersects_frustum_SAT` and invoked in `Tutorial::update` when `--culling frustum` is set. Per-mesh AABBs are computed during vertex loading and stored in `object_vertices_list` (min/max recorded while reading positions in `Tutorial`), corners are transformed into world space and tested against the camera frustum. The test uses the Separating Axis Theorem: axes (total: 5+3+3*6=26) include frustum plane normals (5), box face normals (3), and cross-products (3*6=18) of frustum edges (6) and box edges (3). Helper functions: `get_frustum_corners_trans`, `get_aabb_corners`, and `overlapsOnAxis`.
 </p>
-<p class="placeholder">
-Include, as evidence, a screenshot or video showing that culling is working (e.g., by using a debug camera to show that meshes outside the user camera's view aren't being drawn).
+<p>
+Evidence: enable debug camera (Tab until Debug), enable frustum culling (`--culling frustum`), and observe that wireframe bounding boxes for culled objects are absent from the draw list. The app prints periodic performance summaries to stdout showing CPU (ms) (CPU times also wait for gpu so it measures one frame time) and GPU (us) averages every 60 frames (see `PERF avg` in `Tutorial::render`). The destructor writes `frame_times.csv` for offline analysis.
+</p>
+<img src="./nocull.png" alt="noculling" width="600">
+<p>
+This is run the scene "--scene animation/scene_wind/output.s72" with close up user camera and no culling. the gpu time is around 27.5 us, while frame time is around 4.16 ms where fps is 240HZ. (My monitor vsync is 240HZ so the frame time is around 4.16ms which is 1000/240).
+</p>
+<img src="./Cull00.png" alt="culling" width="600">
+<p>
+This is run the scene "--scene animation/scene_wind/output.s72 --culling frustum". Noticeble the gpu time is around 22.5 us, while frame time is around 5.5 ms where fps is 170HZ. 
+The gpu time is reduced because of the culling, but the frame time is increased because of the culling overhead. (Cpu logic) The debug camera view shows the culled objects (wireframe boxes) are outside the frustum.
+</p>
+<img src="./Cull01.png" alt="culling-debug" width="600">
+<img src="./Cull02.png" alt="culling all" width="600">
+<img src="./Cull04.png" alt="culling all debug" width="600">
+<img src="./cullingtable.png" alt="culling all debug" width="600">
+
+<p>
+To measure impact:
+- For close up camera, the culling reduces the gpu time, because there are less vertices to draw.
+- For overview camera, the culling has no effect because all objects are in the frustum, but it does add overhead and increases frame time.
 </p>
 
-<p class="placeholder">
-Also include evidence that your culling works on any particularly difficult cases you may have thought up (include .s72 / .b72 files as appropriate).
-</p>
 
-<p class="placeholder">
-Demonstrate a scene and camera angle where your culling code improves performance; and demonstrate one where it does not improve performance.
-Include screen shots and make a chart or graph of median frame times as evidence for the performance impact.
+
+
+<img src="./culltest.png" alt="Difficult case" width="600">
+<img src="./culltest00.png" alt="Difficult case" width="600">
+<img src="./culltest01.png" alt="Difficult case" width="600">
+<p>
+For difficult cases (credit to in-class discussions): The set of 18 axes formed by the cross products of edges are used to consider edge on edge collision detection.
+The screenshot successfully demonstrate it culls the object given the difficult case.
 </p>
 
 
 <h3>Animating the scene <span class="atag">A1-move</span></h3>
 
-<p class="placeholder">
-Describe, in a few sentences:
-how your viewer stores keyframes;
 and where/how your code handles updated transformations due to animations.
-Include code and structure references.
+<p>
+Keyframes are stored in `S72::Driver` (times and values). `Tutorial::update` samples drivers each frame (supporting STEP, LINEAR, SLERP interpolation) and writes resulting translations/rotations/scales into the node objects before calling `fill_scene_graph`, which constructs per-instance `ObjectsPipeline::Transform` data used by the GPU.
 </p>
 
-<p class="placeholder">
-Provide evidence that your viewer can play back s72 animation.
-Make sure to demonstrate that both camera and object animation work, and that animation of scene graph hierarchies work.
-</p>
+<video controls width="600">
+  <source src="./animation.mp4" type="video/mp4">
+</video>
 
 
 <h3>Bottleneck Hunting <span class="atag">A1-test</span></h3>
+<p>
+My hardware: Windows 11; CPU: i9-13980HX; GPU: RTX 4070 Laptop GPU; RAM: 32GB DDR5. Monitor: 240HZ
+</p>
+<p>
+CPU-Bottleneck: I used the windmill scene without and with frustum culling enabled. I notice the frame used to be around 4.16ms,
+and after I use frustum culling, the frame time is increased to around 5.5ms
+</p>
+<img src="./Cull04.png" alt="culling all debug" width="600">
+<img src="./cullingtable.png" alt="culling all debug" width="600">
+<p>
+And I used headless mode 
+(bin\viewer.exe --scene ../animation/scene_wind/output.s72 --headless --drawing-size 1920 1080 < events.txt) and
+(bin\viewer.exe --scene ../animation/scene_wind/output.s72 --headless --drawing-size 1920 1080 --culling frustum < events.txt)
+to save 10 frames to files and use fram_times to see frame time. Here is the comparison table:
+</p>
+<img src="./cullingdiff.png" alt="culling all debug" width="600">
+<p>
+GPU-Bottleneck: I used monkey.s72 and monkey1.s72. I used blender to add just a plane as ground and a monkey mesh. 
+However, for later one I apply the subdivision modifier to the monkey mesh, which increase the vertex count from 507 to 2016578. 
+The frame time is increased from around 4.16ms to around 5.5ms, and gpu time is increased to around 2780 us.  FPS dropped.
+And I used headless mode ((bin\viewer.exe --scene ../report/monkey.s72 --headless --drawing-size 1920 1080 < events.txt)) to save 10 frames to files and use fram_times to see frame time. Here is the comparison table:
+</p>
 
-<p class="placeholder">
-Describe for your CPU- and GPU-bottlenecked scenes what your approach was to moving the critical part of the workload to the CPU or GPU, respectively.
-Include a screenshot of the scenes as well as s72 and b72 files as needed.
-</p>
-<p class="placeholder">
-Describe how you generated the scenes.
-</p>
-<p class="placeholder">
-Describe how you tested the scenes -- including any relevant hardware information about the computer(s) you tested on.
-</p>
-<p class="placeholder">
-Provide evidence that in each scene the CPU- or GPU-part of the workload is, indeed, a bottleneck.
-Use charts and graphs as appropriate to make your argument.
-</p>
 
+<img src="./monkeydiff.png" alt="GPU Bottleneck" width="600">
+<img src="./Monkey1.png" alt="GPU Bottleneck" width="600">
 
 <h3>Performance improvements <span class="atag extra">A1x-fast</span></h3>
 <p class="placeholder">
-Write a subsection (&lt;h4&gt;) of this section for every attempted performance improvement.
-If you attempted no further performance improvements leave this section blank.
-</p>
-
-<p class="placeholder">
-In each subsection, include a description of what you tried (including references to your code) and evidence of where (and if) the optimization actually did improve performance.
-Report -- at a minimum -- frame times for the same scene collected in headless mode with the optimization on and off.
-Ideally, develop a scene for which the optimization does improve performance and another scene for which it does not.
-</p>
+  TODO </p>
 
 <h2>Feedback</h2>
 <p class="placeholder">
-This is the end of the structured report. Feel free to add feedback about A1 to this section.
+This is the end ossf the structured report. Feel free to add feedback about A1 to this section.
 </p>
 
 

@@ -145,8 +145,36 @@ struct Tutorial : RTG::Application {
 		Helpers::AllocatedBuffer Material_src;
 		Helpers::AllocatedBuffer Material;
 		VkDescriptorSet Material_descriptors;
+
+		// index of the first timestamp query assigned to this workspace (uses two queries: start/end)
+		uint32_t query_index = 0;
 	};
 	std::vector< Workspace > workspaces;
+
+	// Query pool for GPU timestamp measurements
+	VkQueryPool query_pool = VK_NULL_HANDLE;
+
+	// Timestamp period in nanoseconds per timestamp tick (from physical device limits)
+	double timestampPeriodNs = 1.0;
+
+	// Collected stats (seconds)
+	std::vector<double> cpu_times;
+	std::vector<double> gpu_times;
+	uint32_t stats_frame_counter = 0;
+
+	// Per-frame stats mapped by frame index
+	struct FrameStats {
+		uint64_t frame = 0;
+		double cpu = -1.0;
+		double gpu = -1.0;
+	};
+	std::unordered_map<uint64_t, FrameStats> stats_map;
+
+	// map from workspace query index -> frame index (start timestamp)
+	std::unordered_map<uint32_t, uint64_t> query_to_frame;
+
+	// global frame counter
+	uint64_t frame_counter = 0;
 
 	//-------------------------------------------------------------------
 	//static scene resources:
