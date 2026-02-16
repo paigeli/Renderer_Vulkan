@@ -1396,6 +1396,84 @@ void Tutorial::update(float dt) {
 
 	{// make some objects:
 		object_instances.clear();
+		// Apply drivers (in file order) to override node properties
+		for (auto const &drv : s72.drivers) {
+			if (drv.times.empty()) continue;
+			float t = playback_time;
+			// find interval
+			auto const &times = drv.times;
+			size_t i = 0;
+			if (t <= times.front()) {
+				i = 0;
+			} else if (t >= times.back()) {
+				i = times.size() - 1;
+			} else {
+				// find index so that times[i] <= t < times[i+1]
+				for (size_t k = 0; k + 1 < times.size(); ++k) {
+					if (times[k] <= t && t < times[k+1]) { i = k; break; }
+				}
+			}
+
+			// sample value depending on channel width
+			if (drv.channel == S72::Driver::Channel::translation || drv.channel == S72::Driver::Channel::scale) {
+				const size_t W = 3;
+				auto const &vals = drv.values;
+				std::array<float,3> samp{};
+				if (i + 1 >= times.size()) {
+					// use last
+					for (size_t c = 0; c < W; ++c) samp[c] = vals[i*W + c];
+				} else {
+					float t0 = times[i];
+					float t1 = times[i+1];
+					float alpha = (t1 == t0) ? 0.0f : (t - t0) / (t1 - t0);
+					if (drv.interpolation == S72::Driver::Interpolation::STEP) {
+						for (size_t c = 0; c < W; ++c) samp[c] = vals[i*W + c];
+					} else { // LINEAR
+						for (size_t c = 0; c < W; ++c) {
+							float v0 = vals[i*W + c];
+							float v1 = vals[(i+1)*W + c];
+							samp[c] = glm::mix(v0, v1, alpha);
+						}
+					}
+				}
+				if (drv.channel == S72::Driver::Channel::translation) {
+					drv.node.translation = S72::vec3(samp[0], samp[1], samp[2]);
+				} else {
+					drv.node.scale = S72::vec3(samp[0], samp[1], samp[2]);
+				}
+			} else if (drv.channel == S72::Driver::Channel::rotation) {
+				const size_t W = 4;
+				auto const &vals = drv.values;
+				glm::quat q;
+				if (i + 1 >= times.size()) {
+					// last
+					q = glm::quat(
+						vals[i*W + 3], // w
+						vals[i*W + 0], // x
+						vals[i*W + 1],
+						vals[i*W + 2]
+					);
+				} else {
+					float t0 = times[i];
+					float t1 = times[i+1];
+					float alpha = (t1 == t0) ? 0.0f : (t - t0) / (t1 - t0);
+					glm::quat q0 = glm::quat(vals[i*W + 3], vals[i*W + 0], vals[i*W + 1], vals[i*W + 2]);
+					glm::quat q1 = glm::quat(vals[(i+1)*W + 3], vals[(i+1)*W + 0], vals[(i+1)*W + 1], vals[(i+1)*W + 2]);
+					if (drv.interpolation == S72::Driver::Interpolation::STEP) {
+						q = q0;
+					} else if (drv.interpolation == S72::Driver::Interpolation::SLERP) {
+						q = glm::normalize(glm::slerp(q0, q1, alpha));
+					} else { // LINEAR on components then normalize
+						glm::quat qmix = glm::mix(q0, q1, alpha);
+						q = glm::normalize(qmix);
+					}
+				}
+				drv.node.rotation = q;
+			} else {
+				throw std::runtime_error("unsupported driver channel");
+			}
+		}
+
 		fill_scene_graph(s72, object_instances);
 
 		// Apply culling if requested
