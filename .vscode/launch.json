@@ -8,10 +8,10 @@
       "program": "${workspaceFolder}\\code\\bin\\viewer.exe",
       "args": [
         "--scene",
-        "report\\examples\\sphereflake.s72",
+        "report\\examples\\env-cube.s72",
         // "--camera",
         // "Arm-Camera",
-        //"--print"
+        "--print"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",

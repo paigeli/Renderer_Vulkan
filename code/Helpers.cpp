@@ -110,14 +110,16 @@ void Helpers::destroy_buffer(AllocatedBuffer &&buffer) {
 }
 
 
-Helpers::AllocatedImage Helpers::create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map) {
+Helpers::AllocatedImage Helpers::create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map, VkImageCreateFlags createFlags, uint32_t arrayLayers) {
 	AllocatedImage image;
 	//refsol::Helpers_create_image(rtg, extent, format, tiling, usage, properties, (map == Mapped), &image);
 	image.extent = extent;
 	image.format = format;
+    image.arrayLayers = arrayLayers;
 
 	VkImageCreateInfo create_info {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.flags = createFlags,
 		.imageType = VK_IMAGE_TYPE_2D,
 		.format = format,
 		.extent{
@@ -126,7 +128,7 @@ Helpers::AllocatedImage Helpers::create_image(VkExtent2D const &extent, VkFormat
 			.depth = 1
 		},
 		.mipLevels = 1,
-		.arrayLayers = 1,
+		.arrayLayers = arrayLayers,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = tiling,
 		.usage = usage,
@@ -208,10 +210,12 @@ void Helpers::transfer_to_buffer(void const *data, size_t size, AllocatedBuffer 
 void Helpers::transfer_to_image(void const *data, size_t size, AllocatedImage &target) {
 	//refsol::Helpers_transfer_to_image(rtg, data, size, &target);
 	assert(target.handle != VK_NULL_HANDLE);
-	//check data is the right size:
+	//check data is the right size (support multiple array layers):
 	size_t bytes_per_block = vkuFormatTexelBlockSize(target.format);
 	size_t texels_per_block = vkuFormatTexelsPerBlock(target.format);
-	assert(size == target.extent.width * target.extent.height * bytes_per_block / texels_per_block);
+	size_t bytes_per_texel = bytes_per_block / texels_per_block;
+	size_t expected = size_t(target.extent.width) * size_t(target.extent.height) * bytes_per_texel * size_t(target.arrayLayers);
+	assert(size == expected);
 
 	//create a host-coherent source buffer
 	AllocatedBuffer transfer_src = create_buffer(
@@ -241,7 +245,7 @@ void Helpers::transfer_to_image(void const *data, size_t size, AllocatedImage &t
 			.baseMipLevel = 0,
 			.levelCount = 1,
 			.baseArrayLayer = 0,
-			.layerCount = 1,
+			.layerCount = target.arrayLayers,
 	};
 	{
 		VkImageMemoryBarrier barrier {
@@ -266,32 +270,39 @@ void Helpers::transfer_to_image(void const *data, size_t size, AllocatedImage &t
 		);
 	}
 
-	//copy the source buffer to the image
+	//copy the source buffer to the image (support multiple array layers)
 	{
-		VkBufferImageCopy region{
-			.bufferOffset = 0,
-			.bufferRowLength = target.extent.width,
-			.bufferImageHeight = target.extent.height,
-			.imageSubresource{
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.mipLevel = 0,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
-			.imageOffset{ .x = 0, .y = 0, .z = 0 },
-			.imageExtent{
-				.width = target.extent.width,
-				.height = target.extent.height,
-				.depth = 1
-			},
-		};
+		size_t layer_size = target.extent.width * target.extent.height * bytes_per_texel;
+
+		std::vector<VkBufferImageCopy> regions;
+		regions.reserve(target.arrayLayers);
+		for (uint32_t layer = 0; layer < target.arrayLayers; ++layer) {
+			VkBufferImageCopy region{
+				.bufferOffset = VkDeviceSize(layer) * VkDeviceSize(layer_size),
+				.bufferRowLength = target.extent.width,
+				.bufferImageHeight = target.extent.height,
+				.imageSubresource{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.mipLevel = 0,
+					.baseArrayLayer = layer,
+					.layerCount = 1,
+				},
+				.imageOffset{ .x = 0, .y = 0, .z = 0 },
+				.imageExtent{
+					.width = target.extent.width,
+					.height = target.extent.height,
+					.depth = 1
+				},
+			};
+			regions.push_back(region);
+		}
 
 		vkCmdCopyBufferToImage(
 			transfer_command_buffer,
 			transfer_src.handle,
 			target.handle,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1, &region
+			uint32_t(regions.size()), regions.data()
 		);
 
 		//NOTE: if had mip levels need to copy as additional regions here

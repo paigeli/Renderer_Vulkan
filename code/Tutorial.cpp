@@ -183,7 +183,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 	{//create descriptor pool:
 		uint32_t per_workspace = uint32_t(rtg.workspaces.size());
-		std::array<VkDescriptorPoolSize, 2> pool_sizes {
+		std::array<VkDescriptorPoolSize, 3> pool_sizes {
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 				.descriptorCount = 2 * per_workspace,
@@ -192,12 +192,16 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.descriptorCount = 2 * per_workspace,
 			},
+			VkDescriptorPoolSize{
+				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = 1 * per_workspace,
+			},
 		};
 
 		VkDescriptorPoolCreateInfo create_info {
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.flags = 0,
-			.maxSets = 4 * per_workspace,
+			.maxSets = 5 * per_workspace,
 			.poolSizeCount = uint32_t(pool_sizes.size()),
 			.pPoolSizes = pool_sizes.data(),
 		};
@@ -281,7 +285,116 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 				VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.World_descriptors));
 			}
-		}	
+		}
+
+		if (s72.environments.size() > 0) {//ENV
+			{
+				// decide texture format and whether this is a cubemap
+				const S72::Texture &tex = *s72.environments.begin()->second.radiance; // for now just take the first environment's radiance texture
+				int width, height, channels;
+				unsigned char* data = stbi_load(tex.path.c_str(), &width, &height, &channels, 4);
+				if (!data) {
+					throw std::runtime_error("Failed to load env texture image: " + tex.path);
+				}
+				// flip to match Vulkan coordinate system
+				//flip_image_y_inplace_rgba(data, width, height);
+				
+				bool isCube = (tex.type == S72::Texture::Type::cube);
+				bool isRGBE = (tex.format == S72::Texture::Format::rgbe);
+
+				assert(isCube && isRGBE);
+
+				if (height % 6 != 0) {
+					throw std::runtime_error("Warning: cube texture " + tex.path + " height not divisible by 6; treating as 2D.");
+				}
+
+				// decode RGBE into float32 RGBA per pixel, and use R32G32B32A32_SFLOAT
+				uint32_t faceWidth = width;
+				uint32_t faceHeight = height / 6;
+				uint32_t layers = 6u;
+				// create CPU-side float buffer for all layers concatenated
+				std::vector<float> float_data;
+				float_data.reserve(size_t(faceWidth) * faceHeight * 4 * layers);
+
+				for (uint32_t layer = 0; layer < layers; ++layer) {
+					for (uint32_t y = 0; y < faceHeight; ++y) {
+						for (uint32_t x = 0; x < faceWidth; ++x) {
+							// vertical strip: faces stacked in Y, so offset Y by layer
+							uint32_t src_y = layer * faceHeight + y;
+							size_t idx = (size_t(src_y) * faceWidth + x);  // x is just x, no layer offset
+
+							glm::u8vec4 col(data[idx*4+0], data[idx*4+1], data[idx*4+2], data[idx*4+3]);
+							glm::vec3 rgb = rgbe_to_float(col);
+
+							float_data.push_back(rgb.r);
+							float_data.push_back(rgb.g);
+							float_data.push_back(rgb.b);
+							float_data.push_back(1.0f);
+						}
+					}
+				}
+
+				// create GPU image as float32 RGBA with arrayLayers = layers and cube flag if needed
+				workspace.Env_src = rtg.helpers.create_image(
+					VkExtent2D{.width = faceWidth, .height = faceHeight},
+					VK_FORMAT_R32G32B32A32_SFLOAT,
+					VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					Helpers::Unmapped,
+					VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+					layers
+				);
+
+				size_t byte_size = float_data.size() * sizeof(float);
+				rtg.helpers.transfer_to_image(float_data.data(), byte_size, workspace.Env_src);
+
+				stbi_image_free(data);
+			}
+
+			{
+				VkImageViewCreateInfo create_info {
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.flags = 0,
+					.image = workspace.Env_src.handle,
+					.viewType = VK_IMAGE_VIEW_TYPE_CUBE,
+					.format = workspace.Env_src.format,
+					.subresourceRange{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = workspace.Env_src.arrayLayers,
+					},
+				};
+
+				VK(vkCreateImageView(rtg.device, &create_info, nullptr, &workspace.Env));
+			}
+
+			{
+				VkSamplerCreateInfo create_info {
+					.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+					.flags = 0,
+					.magFilter = VK_FILTER_NEAREST,
+					.minFilter = VK_FILTER_NEAREST,
+					.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+					.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+					.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+					.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+					.mipLodBias = 0.0f,
+					.anisotropyEnable = VK_FALSE,
+					.maxAnisotropy = 0.0f,
+					.compareEnable = VK_FALSE,
+					.compareOp = VK_COMPARE_OP_ALWAYS,
+					.minLod = 0.0f,
+					.maxLod = 0.0f,
+					.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+					.unnormalizedCoordinates = VK_FALSE,
+				};
+
+				VK(vkCreateSampler(rtg.device, &create_info, nullptr, &workspace.env_sampler));
+			}
+		}
 		
 		{//Material
 			size_t matCount = std::max(size_t(1), s72.materials.size());
@@ -330,7 +443,13 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				.range = workspace.Material.size,
 			};
 
-			std::array<VkWriteDescriptorSet, 3> writes{
+			VkDescriptorImageInfo Env_info{
+					.sampler = workspace.env_sampler,
+					.imageView = workspace.Env,
+					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+
+			std::array<VkWriteDescriptorSet, 4> writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -358,11 +477,21 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 					.pBufferInfo = &Material_info,
 				},
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pImageInfo = &Env_info,
+				},
 			};
-
+			bool has_env = (workspace.Env != VK_NULL_HANDLE && workspace.env_sampler != VK_NULL_HANDLE);
+			uint32_t write_count = has_env ? 4 : 3;
 			vkUpdateDescriptorSets(
 				rtg.device,
-				uint32_t(writes.size()),
+				write_count,
 				writes.data(),
 				0, //descriptor copy count
 				nullptr
@@ -399,9 +528,12 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 			.albedo = vec4(1.0f, 0.0f, 1.0f, 0.0f), // test purple color
 			.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
 			});
-			for (auto const &pair : s72.materials) {
+			uint32_t index = 0;
+			material_ptr_to_index.clear();
+			for (auto &pair : s72.materials) {
 				const S72::Material& mat = pair.second; 
-				ObjectsPipeline::Material& mat_out = materials[mat.index];
+				material_ptr_to_index[&pair.second] = index;
+				ObjectsPipeline::Material& mat_out = materials[index];
 				if (auto* p = std::get_if<S72::Material::PBR>(&mat.brdf)) {
 					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_PBR;
 					//TODO
@@ -420,6 +552,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_ENVIRONMENT;
 					//TODO
 				}
+				index++;
 			}
 		} else {
 			materials.emplace_back(ObjectsPipeline::Material{
@@ -427,8 +560,6 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
 			});
 		}
-		
-		
 	}
 
 	{ //objects
@@ -503,32 +634,42 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		{ //make some textures
 			textures.reserve(1);
 			if (!s72.textures.empty()) {
+				// map S72 texture address -> index in textures/textures_views
 				for (const auto& pair : s72.textures) {
-					// const std::string& tex_name = pair.first;
 					const S72::Texture& tex = pair.second;
 					int width, height, channels;
-					// int ok = stbi_info(tex.path, &width, &height, &channels);
 					unsigned char* data = stbi_load(tex.path.c_str(), &width, &height, &channels, 4);
 					if (!data) {
 						throw std::runtime_error("Failed to load texture image: " + tex.path);
 					}
-					// std::cout << "Texture size: " << width << "x" << height << " channels: " << channels << std::endl;
+					// flip to match Vulkan coordinate system
 					flip_image_y_inplace_rgba(data, width, height);
-					textures.emplace_back(rtg.helpers.create_image(
-						VkExtent2D{.width = uint32_t(width), .height = uint32_t(height)},
-						VK_FORMAT_R8G8B8A8_SRGB,
-						VK_IMAGE_TILING_OPTIMAL,
-						VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-						VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-						Helpers::Unmapped
-					));
 
-					size_t image_size = width * height * 4; // 4 bytes per pixel (RGBA)
-					rtg.helpers.transfer_to_image(data, image_size, textures.back());
+					
+					if (tex.type == S72::Texture::Type::flat) {
+						// normal 2D texture
+						textures.emplace_back(rtg.helpers.create_image(
+							VkExtent2D{.width = uint32_t(width), .height = uint32_t(height)},
+							VK_FORMAT_R8G8B8A8_SRGB,
+							VK_IMAGE_TILING_OPTIMAL,
+							VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+							VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+							Helpers::Unmapped
+						));
 
-					stbi_image_free(data);
+						size_t image_size = size_t(width) * size_t(height) * 4; // 4 bytes per pixel (RGBA)
+						rtg.helpers.transfer_to_image(data, image_size, textures.back());
+
+						stbi_image_free(data);
+					} else if (tex.type == S72::Texture::Type::cube) {
+						continue; //skip in textures array
+					} else {
+						throw std::runtime_error("Unsupported texture type for texture: " + tex.path);
+					}
 				}
-			} else {
+			} 
+
+			if (textures.empty()) {
 				//dark grey / light grey checkerboard with a red square at the origin
 				//make texture
 				uint32_t size = 128;
@@ -564,20 +705,19 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				//transfer data
 				rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
 			}
-			
-			
 		}
 
-		{ //make image views for the textures
+		{
+			// create image views (after all images created)
 			texture_views.reserve(textures.size());
-			for(Helpers::AllocatedImage const &image : textures) {
+			for (size_t i = 0; i < textures.size(); ++i) {
+				const Helpers::AllocatedImage &image = textures[i];
 				VkImageViewCreateInfo create_info {
 					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 					.flags = 0,
 					.image = image.handle,
 					.viewType = VK_IMAGE_VIEW_TYPE_2D,
 					.format = image.format,
-					//.components
 					.subresourceRange{
 						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 						.baseMipLevel = 0,
@@ -592,7 +732,6 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 				texture_views.emplace_back(image_view);
 			}
-			assert(texture_views.size() == textures.size());
 		}
 
 		{ //make a sampler for the textures
@@ -725,7 +864,7 @@ Tutorial::~Tutorial() {
 		if(workspace.command_buffer != VK_NULL_HANDLE) {
 		vkFreeCommandBuffers(rtg.device, command_pool, 1, &workspace.command_buffer);
 		workspace.command_buffer = VK_NULL_HANDLE;
-	}
+		}
 
 		if(workspace.lines_vertices_src.handle != VK_NULL_HANDLE) {
 			rtg.helpers.destroy_buffer(std::move(workspace.lines_vertices_src));
@@ -758,6 +897,15 @@ Tutorial::~Tutorial() {
 		if(workspace.Material.handle != VK_NULL_HANDLE) {
 			rtg.helpers.destroy_buffer(std::move(workspace.Material));
 		}
+		if(workspace.env_sampler != VK_NULL_HANDLE) {
+			vkDestroySampler(rtg.device, workspace.env_sampler, nullptr);
+			workspace.env_sampler = VK_NULL_HANDLE;
+		}
+		if(workspace.Env != VK_NULL_HANDLE) {
+			vkDestroyImageView(rtg.device, workspace.Env, nullptr);
+			workspace.Env = VK_NULL_HANDLE;
+		}
+		rtg.helpers.destroy_image(std::move(workspace.Env_src));
 	}
 	workspaces.clear();
 
@@ -1944,9 +2092,12 @@ void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 lo
 		if (it == object_vertices_list.end()) throw std::runtime_error("Failed to find the mesh in object vertices list");
 		uint32_t matId = 0;
 		if(node->mesh->material != nullptr){
-			// objects.back().material = node->mesh->material->name;
-			matId = node->mesh->material->index;
-			//std::cout << " {Material: " <<node->mesh->material->name << "}";
+			auto mat_it = material_ptr_to_index.find(node->mesh->material);
+			if (mat_it != material_ptr_to_index.end()) {
+				matId = mat_it->second;
+			} else {
+				throw std::runtime_error("Failed to find the material in material list");
+    		}
 		}
 		ObjectInstance obj = ObjectInstance{
 			.vertices = it->second,

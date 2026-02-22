@@ -6,6 +6,7 @@ layout(set=0, binding=0) uniform World{
 
     vec3 SUN_DIRECTION;
     vec3 SUN_ENERGY;
+    vec3 EYE;
 };
 struct Material {
     vec4 albedo;
@@ -20,7 +21,9 @@ layout(set=2, binding=0, std140) readonly buffer SSBO_Materials {
     Material MATERIALS[];
 };
 
+
 layout(set=3, binding=0) uniform sampler2D TEXTURE;
+layout(set=0, binding=1) uniform samplerCube ENVIRONMENT_MAP;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
@@ -49,7 +52,23 @@ void main() {
         vec3 e = SKY_ENERGY * vec3(0.5 * dot(n, SKY_DIRECTION) + 0.5) + SUN_ENERGY * max(0.0, dot(n, SUN_DIRECTION)); // half lambertien
         outColor = vec4(e*baseColor / 3.1415926  , 1.0);
     }
-   
+    else if (mat.brdf == BRDF_ENVIRONMENT) {
+        // sample environment using world-space normal
+        baseColor = texture(ENVIRONMENT_MAP, normalize(n)).rgb;
+        // if (mat.hasAlbedoTex != 0) {
+        //     baseColor = texture(TEXTURE, texCoord).rgb;
+        // } else {
+        //     baseColor = mat.albedo.rgb;
+        // }
+        outColor = vec4(baseColor, 1.0);
+    }
+    else if (mat.brdf == BRDF_MIRROR) {
+        // reflect view vector about normal and sample environment map
+        vec3 V = normalize(EYE - position); // view vector from fragment to eye
+        vec3 R = reflect(-V, normalize(n));
+        baseColor = texture(ENVIRONMENT_MAP, R).rgb;
+        outColor = vec4(baseColor, 1.0);
+    }
 
     // if (materialId == 0) {
     //     Material mat = MATERIALS[materialId];

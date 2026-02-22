@@ -3,3 +3,4 @@ objs/
 spv/
 bin/
 saves/
+frame_times.csv

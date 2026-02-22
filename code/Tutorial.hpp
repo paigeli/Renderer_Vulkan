@@ -78,8 +78,9 @@ struct Tutorial : RTG::Application {
 			struct { float r, g, b, padding_; } SKY_ENERGY;
 			struct { float x, y, z, padding_; } SUN_DIRECTION;
 			struct { float r, g, b, padding_; } SUN_ENERGY;
+			struct { float x, y, z, padding_; } EYE;
 		};
-		static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
+		static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
 		struct Transform {
 			mat4 CLIP_FROM_LOCAL;
 			mat4 WORLD_FROM_LOCAL;
@@ -136,6 +137,11 @@ struct Tutorial : RTG::Application {
 		Helpers::AllocatedBuffer World_src;
 		Helpers::AllocatedBuffer World;
 		VkDescriptorSet World_descriptors;
+
+		Helpers::AllocatedImage Env_src;
+		VkImageView Env;
+		VkSampler env_sampler = VK_NULL_HANDLE;
+		//VkDescriptorSet Env_descriptors;
 
 		//ObjectsPipeline::Transofrms data
 		Helpers::AllocatedBuffer Transforms_src;
@@ -274,6 +280,7 @@ struct Tutorial : RTG::Application {
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 	ObjectsPipeline::World world;
 	std::vector<ObjectsPipeline::Material> materials;
+	std::unordered_map<S72::Material*, uint32_t> material_ptr_to_index;
 
 	struct ObjectInstance {
 		ObjectVertices vertices;

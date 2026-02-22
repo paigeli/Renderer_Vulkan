@@ -55,11 +55,12 @@ struct Helpers {
 		VkImage handle = VK_NULL_HANDLE;
 		VkExtent2D extent{.width = 0, .height = 0};
 		VkFormat format = VK_FORMAT_UNDEFINED;
+		uint32_t arrayLayers = 1;
 		Allocation allocation;
 
 		//NOTE: could define default constructor, move constructor, move assignment, destructor for a bit more paranoia
 	};
-	AllocatedImage create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map = Unmapped);
+	AllocatedImage create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map = Unmapped, VkImageCreateFlags createFlags = 0, uint32_t arrayLayers = 1);
 	void destroy_image(AllocatedImage &&allocated_image);
 	
 
