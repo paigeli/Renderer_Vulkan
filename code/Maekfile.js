@@ -24,6 +24,11 @@ const maek = init_maek();
 custom_flags_and_rules();
 //(moved to a function so the build definition is closer to the top of the file)
 
+const common_objs = [
+	maek.CPP('Helpers.cpp'),
+	maek.CPP('RTG.cpp'),
+]
+
 //maek.CPP(...) builds a c++ file:
 // it returns the path to the output object file
 const main_objs = [
@@ -31,13 +36,25 @@ const main_objs = [
 	maek.CPP('PosColVertex.cpp'),
 	maek.CPP('PosNorTexVertex.cpp'),
 	maek.CPP('PosNorTanTexVertex.cpp'),
-	maek.CPP('RTG.cpp'),
-	maek.CPP('Helpers.cpp'),
+	// maek.CPP('RTG.cpp'),
+	// maek.CPP('Helpers.cpp'),
 	maek.CPP("sejp.cpp"),
 	maek.CPP("S72.cpp"),
 	maek.CPP("viewer.cpp"),
 	//maek.CPP('main.cpp'),
+	...common_objs,
 ];
+
+const cube_objs = [
+	maek.CPP('cube.cpp'),
+	...common_objs,
+];
+
+//uncomment to build cube shaders and pipeline:
+const cube_shaders = [
+	maek.GLSLC('cube.comp', 'spv/cube.comp.lambertian', { GLSLCFlags:[...maek.DEFAULT_OPTIONS.GLSLCFlags, '-DLAMBERTIAN'] } ),
+];
+cube_objs.push( maek.CPP('CubePipeline.cpp', undefined, { depends:[...cube_shaders] } ) );
 
 //maek.GLSLC(...) builds a glsl source file:
 // it returns the path to the output .inl file
@@ -59,7 +76,8 @@ main_objs.push( maek.CPP('Tutorial-LinesPipeline.cpp', undefined, { depends:[...
 //uncomment to build objects shaders and pipeline:
 const objects_shaders = [
 	maek.GLSLC('objects.vert'),
-	maek.GLSLC('objects.frag'),
+	maek.GLSLC('objects.frag', 'spv/objects.frag.tonemap_linear', { GLSLCFlags:[...maek.DEFAULT_OPTIONS.GLSLCFlags, '-I', 'code', '-DTONEMAP_LINEAR'] }),
+	maek.GLSLC('objects.frag', 'spv/objects.frag.tonemap_aces', { GLSLCFlags:[...maek.DEFAULT_OPTIONS.GLSLCFlags, '-I', 'code', '-DTONEMAP_ACES'] }),
 ];
 main_objs.push( maek.CPP('Tutorial-ObjectsPipeline.cpp', undefined, { depends:[...objects_shaders] } ) );
 
@@ -79,8 +97,10 @@ main_objs.push( maek.CPP('Tutorial-ObjectsPipeline.cpp', undefined, { depends:[.
 // const main_exe = maek.LINK([...main_objs, ...prebuilt_objs], 'bin/main');
 const main_exe = maek.LINK([...main_objs,], 'bin/viewer');
 
+const cube_exe = maek.LINK([...cube_objs,], 'bin/cube');
+
 //default targets:
-maek.TARGETS = [main_exe];
+maek.TARGETS = [main_exe, cube_exe];
 
 //- - - - - - - - - - - - - - - - - - - - -
 function custom_flags_and_rules() {
@@ -297,7 +317,7 @@ function init_maek() {
 	}
 
 	if (maek.OS === 'windows') {
-		DEFAULT_OPTIONS.CPP = ['cl.exe', '/nologo', '/EHsc', '/Z7', '/std:c++17', '/W4', '/WX', '/MD'];
+		DEFAULT_OPTIONS.CPP = ['cl.exe', '/nologo', '/EHsc', '/Z7', '/std:c++17', '/W4', '/WX', '/MD', '/openmp'];
 		//TODO: could embed manifest to set UTF8 codepage
 		DEFAULT_OPTIONS.LINK = ['link.exe', '/nologo', '/SUBSYSTEM:CONSOLE', '/DEBUG:FASTLINK', '/INCREMENTAL:NO'];
 	} else if (maek.OS === 'linux') {

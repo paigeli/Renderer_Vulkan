@@ -74,6 +74,9 @@ struct Helpers {
 	VkCommandPool transfer_command_pool = VK_NULL_HANDLE;
 	VkCommandBuffer transfer_command_buffer = VK_NULL_HANDLE;
 
+	VkCommandPool compute_command_pool = VK_NULL_HANDLE;
+	VkCommandBuffer compute_command_buffer = VK_NULL_HANDLE;
+
 	//-----------------------
 	//Misc utilities:
 	//scene graph
@@ -95,7 +98,6 @@ struct Helpers {
 	VkShaderModule create_shader_module(uint32_t const (&arr)[N]) const {
 		return create_shader_module(arr, 4*N);
 	}
-
 	//-----------------------
 	//internals:
 	Helpers(RTG const &);

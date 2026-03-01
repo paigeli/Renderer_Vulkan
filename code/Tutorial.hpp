@@ -78,7 +78,7 @@ struct Tutorial : RTG::Application {
 			struct { float r, g, b, padding_; } SKY_ENERGY;
 			struct { float x, y, z, padding_; } SUN_DIRECTION;
 			struct { float r, g, b, padding_; } SUN_ENERGY;
-			struct { float x, y, z, padding_; } EYE;
+			struct { float x, y, z, w; } EYE;  // w stores exposure
 		};
 		static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
 		struct Transform {
@@ -92,20 +92,33 @@ struct Tutorial : RTG::Application {
 		};
 		static_assert(sizeof(Transform) == 16 * 4 * 3 + 4*4, "Transform structure is the expected size");
 		enum BRDFType : uint32_t {
-			BRDF_LAMBERTIAN,
-			BRDF_PBR,        
- 			BRDF_MIRROR,      
-			BRDF_ENVIRONMENT,
+			BRDF_LAMBERTIAN = 0,
+			BRDF_PBR = 1,        
+ 			BRDF_MIRROR = 2,      
+			BRDF_ENVIRONMENT = 3,
 		};
-		struct Material {
-			vec4 albedo;
-			BRDFType brdf;
-			uint32_t hasAlbedoTex = 0;
-			uint32_t albedoTexIndex = 0;
-			uint32_t padding_0 = 0;
 
+		// Material flags packing in bits:
+		// bits 0-1: BRDF type
+		// bits 2-6: hasAlbedoTex, hasNormalTex, hasRoughnessTex, hasMetalnessTex, hasDisplacementTex
+		static constexpr uint32_t MAT_FLAG_BRDF_MASK              = 0x00000003u;
+		static constexpr uint32_t MAT_FLAG_HAS_ALBEDO_TEX         = 0x00000004u;
+		static constexpr uint32_t MAT_FLAG_HAS_NORMAL_TEX         = 0x00000008u;
+		static constexpr uint32_t MAT_FLAG_HAS_ROUGHNESS_TEX      = 0x00000010u;
+		static constexpr uint32_t MAT_FLAG_HAS_METALNESS_TEX      = 0x00000020u;
+		static constexpr uint32_t MAT_FLAG_HAS_DISPLACEMENT_TEX   = 0x00000040u;
+
+		struct Material {
+			// Slot 0 (16 bytes)
+			vec4 albedo;                    // RGBA color or placeholder
+			
+			// Slot 1 (16 bytes) - packed scalars
+			uint32_t flags;                 // brdf type (bits 0-1) + texture presence flags (bits 2-6)
+			float roughness;                // default roughness when not textured (PBR)
+			float metalness;                // default metalness when not textured (PBR)
+			uint32_t padding_scalar;        // padding to align to 16 bytes
 		};
-		static_assert(sizeof(Material) == 4*4 + 4*4, "Material is the expected size.");
+		static_assert(sizeof(Material) == 32, "Material should be 32 bytes (2 x 16-byte slots)");
 		//no push constants
 
 		//layout
@@ -141,7 +154,9 @@ struct Tutorial : RTG::Application {
 		Helpers::AllocatedImage Env_src;
 		VkImageView Env;
 		VkSampler env_sampler = VK_NULL_HANDLE;
-		//VkDescriptorSet Env_descriptors;
+		
+		Helpers::AllocatedImage Env_Lambertian_src;
+		VkImageView Env_Lambertian;
 
 		//ObjectsPipeline::Transofrms data
 		Helpers::AllocatedBuffer Transforms_src;
@@ -281,11 +296,17 @@ struct Tutorial : RTG::Application {
 	ObjectsPipeline::World world;
 	std::vector<ObjectsPipeline::Material> materials;
 	std::unordered_map<S72::Material*, uint32_t> material_ptr_to_index;
+	std::unordered_map<S72::Texture*, uint32_t> texture_ptr_to_index;
 
 	struct ObjectInstance {
 		ObjectVertices vertices;
 		ObjectsPipeline::Transform transform;
-		uint32_t texture = 0;
+		uint32_t albedo_tex = std::numeric_limits<uint32_t>::max();
+		uint32_t normal_tex = std::numeric_limits<uint32_t>::max();
+		uint32_t displacement_tex = std::numeric_limits<uint32_t>::max();
+		uint32_t roughness_tex = std::numeric_limits<uint32_t>::max();
+		uint32_t metalness_tex = std::numeric_limits<uint32_t>::max();
+		VkDescriptorSet texture_set = VK_NULL_HANDLE;
 		// std::string material = "";
 	};
 	std::vector<ObjectInstance> object_instances;

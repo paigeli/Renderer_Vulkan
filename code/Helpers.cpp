@@ -517,6 +517,24 @@ void Helpers::create() {
 	};
 	VK(vkAllocateCommandBuffers(rtg.device, &alloc_info, &transfer_command_buffer));
 
+	// Create compute command pool and buffer
+	{
+		VkCommandPoolCreateInfo compute_pool_info{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+			.queueFamilyIndex = rtg.compute_queue_family.value(),
+		};
+		VK(vkCreateCommandPool(rtg.device, &compute_pool_info, nullptr, &compute_command_pool));
+
+		VkCommandBufferAllocateInfo compute_alloc_info{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = compute_command_pool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1,
+		};
+		VK(vkAllocateCommandBuffers(rtg.device, &compute_alloc_info, &compute_command_buffer));
+	}
+
 	vkGetPhysicalDeviceMemoryProperties(rtg.physical_device, &memory_properties);
 
 	if(rtg.configuration.debug) {
@@ -542,5 +560,14 @@ void Helpers::destroy() {
 	if(transfer_command_pool != VK_NULL_HANDLE) {
 		vkDestroyCommandPool(rtg.device, transfer_command_pool, nullptr);
 		transfer_command_pool = VK_NULL_HANDLE;
+	}
+
+	if(compute_command_buffer != VK_NULL_HANDLE) {
+		vkFreeCommandBuffers(rtg.device, compute_command_pool, 1, &compute_command_buffer);
+		compute_command_buffer = VK_NULL_HANDLE;
+	}
+	if(compute_command_pool != VK_NULL_HANDLE) {
+		vkDestroyCommandPool(rtg.device, compute_command_pool, nullptr);
+		compute_command_pool = VK_NULL_HANDLE;
 	}
 }

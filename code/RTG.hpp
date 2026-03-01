@@ -87,6 +87,14 @@ struct RTG {
 		//culling mode: "none" or "frustum"
 		std::string culling = "none";
 
+		std::string lambertian_env_output = "";
+
+		// Tone mapping and exposure control
+		// `--exposure <float>` command-line flag (default: 0.0, multiplier = 2^exposure)
+		float exposure = 0.0f;
+		// `--tone-map <linear|aces>` command-line flag (default: "linear")
+		std::string tone_map_operator = "linear";
+
 		//for configuration construction + management:
 		Configuration() = default;
 		void parse(int argc, char **argv); //parse command-line options; throws on error
@@ -115,6 +123,10 @@ struct RTG {
 	//queue for present operations:
 	std::optional< uint32_t > present_queue_family;
 	VkQueue present_queue = VK_NULL_HANDLE;
+
+	//queue for compute operations:
+	std::optional< uint32_t > compute_queue_family;
+	VkQueue compute_queue = VK_NULL_HANDLE;
 
 	//-------------------------------------------------
 	//Handles for the window and surface:

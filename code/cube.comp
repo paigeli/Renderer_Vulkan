@@ -1,0 +1,134 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform imageCube input_cubemap;
+layout(set = 0, binding = 1, rgba32f) uniform imageCube output_cubemap;
+
+layout(push_constant) uniform Push {
+    uint input_res;
+    uint output_res;
+} push;
+
+// Convert cubemap face + UV coordinates to 3D direction vector
+vec3 cubemap_to_direction(uint face, vec2 uv) {
+    // uv is normalized [0,1] for the face
+    // Convert to [-1,1] range
+    vec2 pos = 2.0 * uv - 1.0;
+    
+    vec3 dir;
+    switch(face) {
+        case 0: // +X
+            dir = vec3(1.0, -pos.y, -pos.x);
+            break;
+        case 1: // -X
+            dir = vec3(-1.0, -pos.y, pos.x);
+            break;
+        case 2: // +Y
+            dir = vec3(pos.x, 1.0, pos.y);
+            break;
+        case 3: // -Y
+            dir = vec3(pos.x, -1.0, -pos.y);
+            break;
+        case 4: // +Z
+            dir = vec3(pos.x, -pos.y, 1.0);
+            break;
+        case 5: // -Z
+            dir = vec3(-pos.x, -pos.y, -1.0);
+            break;
+    }
+    return normalize(dir);
+}
+
+// Convert 3D direction to cubemap face + UV coordinates
+void direction_to_cubemap(vec3 dir, out uint face, out vec2 uv) {
+    vec3 abs_dir = abs(dir);
+    float max_comp = max(max(abs_dir.x, abs_dir.y), abs_dir.z);
+    
+    if (abs_dir.x == max_comp && dir.x > 0.0) {
+        // +X face
+        face = 0;
+        uv = vec2(-dir.z / dir.x, -dir.y / dir.x);
+    } else if (abs_dir.x == max_comp && dir.x < 0.0) {
+        // -X face
+        face = 1;
+        uv = vec2(dir.z / abs_dir.x, -dir.y / abs_dir.x);
+    } else if (abs_dir.y == max_comp && dir.y > 0.0) {
+        // +Y face
+        face = 2;
+        uv = vec2(dir.x / dir.y, dir.z / dir.y);
+    } else if (abs_dir.y == max_comp && dir.y < 0.0) {
+        // -Y face
+        face = 3;
+        uv = vec2(dir.x / abs_dir.y, -dir.z / abs_dir.y);
+    } else if (abs_dir.z == max_comp && dir.z > 0.0) {
+        // +Z face
+        face = 4;
+        uv = vec2(dir.x / dir.z, -dir.y / dir.z);
+    } else {
+        // -Z face
+        face = 5;
+        uv = vec2(-dir.x / abs_dir.z, -dir.y / abs_dir.z);
+    }
+    // Convert from [-1,1] to [0,1]
+    uv = (uv + 1.0) * 0.5;
+}
+
+void main() {
+    // Get output coordinates
+    ivec3 out_coord = ivec3(gl_GlobalInvocationID);
+    
+    // Check bounds for cubic layout: (u, v, face)
+    if (out_coord.x >= int(push.output_res) || out_coord.y >= int(push.output_res) || out_coord.z >= 6) {
+        return;
+    }
+    
+    uint out_face = uint(out_coord.z);
+    vec2 out_uv = (vec2(out_coord.xy) + 0.5) / float(push.output_res);
+    
+    // Get output normal (the normal direction for this cubemap pixel)
+    vec3 out_normal = cubemap_to_direction(out_face, out_uv);
+    
+    // Accumulate irradiance from input cubemap
+    vec3 accumulated = vec3(0.0);
+    float total_weight = 0.0;
+    
+    float input_solid_angle = 0.0;
+    
+    // Iterate over all input pixels
+    for (uint in_face = 0; in_face < 6; ++in_face) {
+        for (uint in_y = 0; in_y < push.input_res; ++in_y) {
+            for (uint in_x = 0; in_x < push.input_res; ++in_x) {
+                // Get input pixel UV coordinates
+                vec2 in_uv = (vec2(in_x, in_y) + 0.5) / float(push.input_res);
+                
+                // Get input pixel direction
+                vec3 in_dir = cubemap_to_direction(in_face, in_uv);
+                vec2 uv = in_uv * 2.0 - 1.0;
+                float temp = 1.0 + uv.x * uv.x + uv.y * uv.y;
+                input_solid_angle = 4.0 / (sqrt(temp) * temp);
+
+                // Compute cosine-weighted contribution
+                float cos_theta = dot(out_normal, in_dir);
+                if (cos_theta > 0.0) {
+                    // Read input color
+                    vec4 input_color = imageLoad(input_cubemap, ivec3(in_x, in_y, in_face));
+                    
+                    // Accumulate with cosine weight and solid angle
+                    float weight = cos_theta * input_solid_angle;
+                    accumulated += input_color.rgb * weight;
+                    total_weight += weight;
+                }
+            }
+        }
+    }
+    
+    // Normalize by total weight
+    vec3 result = vec3(0.0);
+    if (total_weight > 0.0) {
+        result = accumulated / total_weight;
+    }
+    
+    // Write output
+    imageStore(output_cubemap, out_coord, vec4(result, 1.0));
+}

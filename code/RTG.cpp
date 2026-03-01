@@ -61,6 +61,25 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			if (argi + 1 >= argc) throw std::runtime_error("--culling requires a parameter (none|frustum).");
 			argi += 1;
 			culling = argv[argi];
+		} else if (arg == "--lambertian") {
+			if (argi + 1 >= argc) throw std::runtime_error("--lambertian requires a path to output the lambertian environment map.");
+			argi += 1;
+			lambertian_env_output = argv[argi];
+		} else if (arg == "--exposure") {
+			if (argi + 1 >= argc) throw std::runtime_error("--exposure requires a float parameter.");
+			argi += 1;
+			try {
+				exposure = std::stof(argv[argi]);
+			} catch (...) {
+				throw std::runtime_error("--exposure parameter '" + std::string(argv[argi]) + "' is not a valid float.");
+			}
+		} else if (arg == "--tone-map") {
+			if (argi + 1 >= argc) throw std::runtime_error("--tone-map requires a parameter (linear|aces).");
+			argi += 1;
+			tone_map_operator = argv[argi];
+			if (tone_map_operator != "linear" && tone_map_operator != "aces") {
+				throw std::runtime_error("--tone-map operator must be 'linear' or 'aces', got '" + tone_map_operator + "'.");
+			}
 		} else {
 			throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 		}
@@ -76,6 +95,9 @@ void RTG::Configuration::usage(std::function< void(const char *, const char *) >
 	callback("--print", "Print loaded scene information");
 	callback("--camera <name>", "View the scene throught the camera named <name>");
 	callback("--culling <none|frustum>", "Start with specified culling mode: none or frustum.");
+	callback("--lambertian <output_path>", "Pre-convolve the environment map for lambertian convolution and save the result to the specified path.");
+	callback("--exposure <E>", "Set exposure value (default: 0); computed radiance is multiplied by 2^E before tone mapping.");
+	callback("--tone-map <linear|aces>", "Select tone mapping operator (default: linear); linear applies no tone mapping, aces applies ACES RRT + ODT.");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
@@ -378,6 +400,9 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 				if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 					if (!graphics_queue_family) graphics_queue_family = i;
 				}
+				if (queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+					if (!compute_queue_family) compute_queue_family = i;
+				}
 				if (!configuration.headless) {
 					VkBool32 present_support = VK_FALSE;
 					VK(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, surface, &present_support));
@@ -398,6 +423,9 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 			if (!present_queue_family) {
 				throw std::runtime_error("No queue with present support.");
 			}
+			if (!compute_queue_family) {
+				throw std::runtime_error("No queue with compute support.");
+			}
 		}
 
 		//select device extensions
@@ -414,7 +442,8 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 			std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
 			std::set<uint32_t> unique_queue_families {
 				graphics_queue_family.value(),
-				present_queue_family.value()
+				present_queue_family.value(),
+				compute_queue_family.value()
 			};
 			float queue_priorities[1] = {1.0f};
 			for (uint32_t queue_family : unique_queue_families) {
@@ -444,6 +473,7 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 
 			vkGetDeviceQueue(device, graphics_queue_family.value(), 0, &graphics_queue);
 			vkGetDeviceQueue(device, present_queue_family.value(), 0, &present_queue);
+			vkGetDeviceQueue(device, compute_queue_family.value(), 0, &compute_queue);
 		}
 	}
 

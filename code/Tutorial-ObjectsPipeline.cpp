@@ -8,18 +8,31 @@ static uint32_t vert_code[] =
 #include "spv/objects.vert.inl"
 ;
 
-static uint32_t frag_code[] =
-#include "spv/objects.frag.inl"
+// Include both tone mapping variants
+static uint32_t frag_code_linear[] =
+#include "spv/objects.frag.tonemap_linear.inl"
+;
+
+static uint32_t frag_code_aces[] =
+#include "spv/objects.frag.tonemap_aces.inl"
 ;
 
 
 void Tutorial::ObjectsPipeline::create(RTG& rtg, VkRenderPass render_pass, uint32_t subpass) {
 
     VkShaderModule vert_module = rtg.helpers.create_shader_module(vert_code);
-    VkShaderModule frag_module = rtg.helpers.create_shader_module(frag_code);
+    VkShaderModule frag_module;
+    
+    if (rtg.configuration.tone_map_operator == "aces") {
+        frag_module = rtg.helpers.create_shader_module(frag_code_aces);
+    } else {
+        frag_module = rtg.helpers.create_shader_module(frag_code_linear);
+    }
+
+   
 
     {//set 0: world UBO + optional environment cubemap
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings {
+        std::array<VkDescriptorSetLayoutBinding, 3> bindings {
             VkDescriptorSetLayoutBinding {
                 .binding = 0,
                 .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -28,6 +41,12 @@ void Tutorial::ObjectsPipeline::create(RTG& rtg, VkRenderPass render_pass, uint3
             },
             VkDescriptorSetLayoutBinding {
                 .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            },
+            VkDescriptorSetLayoutBinding {
+                .binding = 2,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = 1,
                 .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -81,10 +100,34 @@ void Tutorial::ObjectsPipeline::create(RTG& rtg, VkRenderPass render_pass, uint3
         VK(vkCreateDescriptorSetLayout(rtg.device, &create_info, nullptr, &set3_Material));
     }
 
-    {//set 2
-        std::array<VkDescriptorSetLayoutBinding, 1> bindings {
+    {//set 2 - Texture samplers per slot
+        std::array<VkDescriptorSetLayoutBinding, 5> bindings {
             VkDescriptorSetLayoutBinding {
                 .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            },
+            VkDescriptorSetLayoutBinding {
+                .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            },
+            VkDescriptorSetLayoutBinding {
+                .binding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            },
+            VkDescriptorSetLayoutBinding {
+                .binding = 3,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            },
+            VkDescriptorSetLayoutBinding {
+                .binding = 4,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = 1,
                 .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,

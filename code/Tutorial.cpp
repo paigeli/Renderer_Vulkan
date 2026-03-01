@@ -88,6 +88,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		// world.SUN_DIRECTION.x = 0.0f;
 		// world.SUN_DIRECTION.y = 0.0f;
 		// world.SUN_DIRECTION.z = 1.0f;
+		world.EYE.w = rtg.configuration.exposure;
 	}
 
 	//select a depth format:
@@ -394,6 +395,85 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 				VK(vkCreateSampler(rtg.device, &create_info, nullptr, &workspace.env_sampler));
 			}
+
+			std::string lambertian_path = rtg.configuration.lambertian_env_output;
+			if (lambertian_path != "") { // lambertian cubemap
+				//std::string lambertian_path = rtg.configuration.lambertian_env_output;
+				assert(lambertian_path != "");
+				int width, height, channels;
+				unsigned char* data = stbi_load(lambertian_path.c_str(), &width, &height, &channels, 4);
+				if (!data) {
+					throw std::runtime_error("Failed to load env texture image: " + lambertian_path);
+				}
+				// flip to match Vulkan coordinate system
+				//flip_image_y_inplace_rgba(data, width, height);
+
+				if (height % 6 != 0) {
+					throw std::runtime_error("Warning: cube lambertian texture " + lambertian_path + " height not divisible by 6; treating as 2D.");
+				}
+
+				// decode RGBE into float32 RGBA per pixel, and use R32G32B32A32_SFLOAT
+				uint32_t faceWidth = width;
+				uint32_t faceHeight = height / 6;
+				uint32_t layers = 6u;
+				// create CPU-side float buffer for all layers concatenated
+				std::vector<float> float_data;
+				float_data.reserve(size_t(faceWidth) * faceHeight * 4 * layers);
+
+				for (uint32_t layer = 0; layer < layers; ++layer) {
+					for (uint32_t y = 0; y < faceHeight; ++y) {
+						for (uint32_t x = 0; x < faceWidth; ++x) {
+							// vertical strip: faces stacked in Y, so offset Y by layer
+							uint32_t src_y = layer * faceHeight + y;
+							size_t idx = (size_t(src_y) * faceWidth + x);  // x is just x, no layer offset
+
+							glm::u8vec4 col(data[idx*4+0], data[idx*4+1], data[idx*4+2], data[idx*4+3]);
+							glm::vec3 rgb = rgbe_to_float(col);
+
+							float_data.push_back(rgb.r);
+							float_data.push_back(rgb.g);
+							float_data.push_back(rgb.b);
+							float_data.push_back(1.0f);
+						}
+					}
+				}
+
+				// create GPU image as float32 RGBA with arrayLayers = layers and cube flag if needed
+				workspace.Env_Lambertian_src = rtg.helpers.create_image(
+					VkExtent2D{.width = faceWidth, .height = faceHeight},
+					VK_FORMAT_R32G32B32A32_SFLOAT,
+					VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					Helpers::Unmapped,
+					VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+					layers
+				);
+
+				size_t byte_size = float_data.size() * sizeof(float);
+				rtg.helpers.transfer_to_image(float_data.data(), byte_size, workspace.Env_Lambertian_src);
+
+				stbi_image_free(data);
+			
+
+			
+				VkImageViewCreateInfo create_info {
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.flags = 0,
+					.image = workspace.Env_Lambertian_src.handle,
+					.viewType = VK_IMAGE_VIEW_TYPE_CUBE,
+					.format = workspace.Env_Lambertian_src.format,
+					.subresourceRange{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = workspace.Env_Lambertian_src.arrayLayers,
+					},
+				};
+
+				VK(vkCreateImageView(rtg.device, &create_info, nullptr, &workspace.Env_Lambertian));
+			}
 		}
 		
 		{//Material
@@ -448,8 +528,13 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					.imageView = workspace.Env,
 					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
+			VkDescriptorImageInfo Env_Lambertian_info{
+					.sampler = workspace.env_sampler,
+					.imageView = workspace.Env_Lambertian,
+					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
 
-			std::array<VkWriteDescriptorSet, 4> writes{
+			std::array<VkWriteDescriptorSet, 5> writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -486,9 +571,19 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 					.pImageInfo = &Env_info,
 				},
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 2,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pImageInfo = &Env_Lambertian_info,
+				},
 			};
 			bool has_env = (workspace.Env != VK_NULL_HANDLE && workspace.env_sampler != VK_NULL_HANDLE);
-			uint32_t write_count = has_env ? 4 : 3;
+			bool has_env_lambertian = (workspace.Env_Lambertian != VK_NULL_HANDLE);
+			uint32_t write_count = has_env ? (has_env_lambertian ? 5 : 4) : 3;
 			vkUpdateDescriptorSets(
 				rtg.device,
 				write_count,
@@ -525,8 +620,11 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 	{//Material
 		if (s72.materials.size() > 0) {
 			materials.assign(s72.materials.size(), ObjectsPipeline::Material{
-			.albedo = vec4(1.0f, 0.0f, 1.0f, 0.0f), // test purple color
-			.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
+				.albedo = vec4(1.0f, 0.0f, 1.0f, 1.0f),
+				.flags = ObjectsPipeline::BRDF_LAMBERTIAN,
+				.roughness = 0.5f,
+				.metalness = 0.0f,
+				.padding_scalar = 0,
 			});
 			uint32_t index = 0;
 			material_ptr_to_index.clear();
@@ -535,29 +633,57 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 				material_ptr_to_index[&pair.second] = index;
 				ObjectsPipeline::Material& mat_out = materials[index];
 				if (auto* p = std::get_if<S72::Material::PBR>(&mat.brdf)) {
-					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_PBR;
-					//TODO
+					mat_out.flags = ObjectsPipeline::BRDF_PBR;
+					if (auto* albedo =  std::get_if<S72::color>(&p->albedo)) {
+						mat_out.albedo = vec4(albedo->r, albedo->g, albedo->b, 1.0f);
+					} else if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&p->albedo)){
+						mat_out.flags |= ObjectsPipeline::MAT_FLAG_HAS_ALBEDO_TEX;
+					}
+					
+					// Handle roughness (either float or texture)
+					if (auto* rough_val = std::get_if<float>(&p->roughness)) {
+						mat_out.roughness = *rough_val;
+					} else if (auto* ptr_roughTex = std::get_if<S72::Texture*>(&p->roughness)) {
+						mat_out.flags |= ObjectsPipeline::MAT_FLAG_HAS_ROUGHNESS_TEX;
+					}
+					
+					// Handle metalness (either float or texture)
+					if (auto* metal_val = std::get_if<float>(&p->metalness)) {
+						mat_out.metalness = *metal_val;
+					} else if (auto* ptr_metalTex = std::get_if<S72::Texture*>(&p->metalness)) {
+						mat_out.flags |= ObjectsPipeline::MAT_FLAG_HAS_METALNESS_TEX;
+					}
 				} else if (auto* l = std::get_if<S72::Material::Lambertian>(&mat.brdf)) {
-					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN;
+					mat_out.flags = ObjectsPipeline::BRDF_LAMBERTIAN;
 					if (auto* albedo =  std::get_if<S72::color>(&l->albedo)) {
 						mat_out.albedo = vec4(albedo->r, albedo->g, albedo->b, 1.0f);
 					} else if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&l->albedo)){
-						mat_out.hasAlbedoTex = 1;
-						mat_out.albedoTexIndex = 0; //TODO: Set tex id
+						mat_out.flags |= ObjectsPipeline::MAT_FLAG_HAS_ALBEDO_TEX;
 					}
 				} else if (auto* m = std::get_if<S72::Material::Mirror>(&mat.brdf)) {
-					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_MIRROR;
-					//TODO
+					mat_out.flags = ObjectsPipeline::BRDF_MIRROR;
 				} else if (auto* e = std::get_if<S72::Material::Environment>(&mat.brdf)) {
-					mat_out.brdf = ObjectsPipeline::BRDFType::BRDF_ENVIRONMENT;
-					//TODO
+					mat_out.flags = ObjectsPipeline::BRDF_ENVIRONMENT;
 				}
+				
+				// Handle normal maps (parsed by S72)
+				if (mat.normal_map != nullptr) {
+					mat_out.flags |= ObjectsPipeline::MAT_FLAG_HAS_NORMAL_TEX;
+				}
+
+				if (mat.displacement_map != nullptr) {
+					mat_out.flags |= ObjectsPipeline::MAT_FLAG_HAS_DISPLACEMENT_TEX;
+				}
+				
 				index++;
 			}
 		} else {
 			materials.emplace_back(ObjectsPipeline::Material{
-				.albedo = vec4(0.8f, 0.8f, 0.8f, 0.0f), // default grey color
-				.brdf = ObjectsPipeline::BRDFType::BRDF_LAMBERTIAN,
+				.albedo = vec4(0.8f, 0.8f, 0.8f, 1.0f),
+				.flags = ObjectsPipeline::BRDF_LAMBERTIAN,
+				.roughness = 0.5f,
+				.metalness = 0.0f,
+				.padding_scalar = 0,
 			});
 		}
 	}
@@ -567,7 +693,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		uint32_t first_offset = 0;
 		for (auto const &pair : s72.meshes) {
 			const std::string& mesh_name = pair.first;
-        	const S72::Mesh&   mesh      = pair.second;
+			const S72::Mesh&   mesh      = pair.second;
 			ObjectVertices obj_vertices{
 				.first = first_offset,
 				.count = mesh.count,
@@ -630,12 +756,29 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 		rtg.helpers.transfer_to_buffer(vertices.data(), bytes, object_vertices);
 	}
 
+	// Helper function to map S72 texture format to Vulkan format
+	auto getTextureFormat = [](S72::Texture::Format fmt) -> VkFormat {
+		switch(fmt) {
+			case S72::Texture::Format::linear: 
+				return VK_FORMAT_R8G8B8A8_UNORM;  // Linear RGB (for normals, roughness, etc.)
+			case S72::Texture::Format::srgb: 
+				return VK_FORMAT_R8G8B8A8_SRGB;   // sRGB (for albedo)
+			case S72::Texture::Format::rgbe: 
+				return VK_FORMAT_R32G32B32A32_SFLOAT;  // RGBE (expanded to float for env maps)
+			default:
+				return VK_FORMAT_R8G8B8A8_SRGB;
+		}
+	};
+
 	{//texture
 		{ //make some textures
 			textures.reserve(1);
+			texture_ptr_to_index.clear();
 			if (!s72.textures.empty()) {
+				uint32_t index = 0;
 				// map S72 texture address -> index in textures/textures_views
-				for (const auto& pair : s72.textures) {
+				for (auto& pair : s72.textures) {
+					texture_ptr_to_index[&pair.second] = index;
 					const S72::Texture& tex = pair.second;
 					int width, height, channels;
 					unsigned char* data = stbi_load(tex.path.c_str(), &width, &height, &channels, 4);
@@ -648,9 +791,11 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 					
 					if (tex.type == S72::Texture::Type::flat) {
 						// normal 2D texture
+						VkFormat texFormat = getTextureFormat(tex.format);
+						
 						textures.emplace_back(rtg.helpers.create_image(
 							VkExtent2D{.width = uint32_t(width), .height = uint32_t(height)},
-							VK_FORMAT_R8G8B8A8_SRGB,
+							texFormat,
 							VK_IMAGE_TILING_OPTIMAL,
 							VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 							VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -661,6 +806,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 						rtg.helpers.transfer_to_image(data, image_size, textures.back());
 
 						stbi_image_free(data);
+						index++;
 					} else if (tex.type == S72::Texture::Type::cube) {
 						continue; //skip in textures array
 					} else {
@@ -757,70 +903,7 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 
 			VK(vkCreateSampler(rtg.device, &create_info, nullptr, &texture_sampler));
 		}
-			
-		{//create texture descriptor pool:
-			uint32_t per_texture = uint32_t(textures.size());
-			std::array<VkDescriptorPoolSize, 1> pool_sizes {
-				VkDescriptorPoolSize{
-					.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-					.descriptorCount = 1 * 1 * per_texture, //1 descriptor per set, 1 set per texture
-				},
-			};
 
-			VkDescriptorPoolCreateInfo create_info {
-				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-				.flags = 0,
-				.maxSets = 1 * per_texture,
-				.poolSizeCount = uint32_t(pool_sizes.size()),
-				.pPoolSizes = pool_sizes.data(),
-			};
-
-			VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &texture_descriptor_pool));
-		}
-
-		{//allocate and write the texture descriptor sets
-			VkDescriptorSetAllocateInfo alloc_info {
-				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-				.descriptorPool = texture_descriptor_pool,
-				.descriptorSetCount = 1,
-				.pSetLayouts = &objects_pipeline.set2_TEXTURE,
-			};
-			texture_descriptors.assign(textures.size(), VK_NULL_HANDLE);
-			for (VkDescriptorSet &descriptor_set : texture_descriptors) {
-				VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &descriptor_set));
-			}
-
-			//write
-			std::vector<VkDescriptorImageInfo> infos(textures.size());
-			std::vector<VkWriteDescriptorSet> writes(textures.size());
-
-			for(Helpers::AllocatedImage const &image : textures) {
-				size_t i = &image - &textures[0];
-				infos[i] = VkDescriptorImageInfo {
-					.sampler = texture_sampler,
-					.imageView = texture_views[i],
-					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				};
-				writes[i] = VkWriteDescriptorSet{
-					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-					.dstSet = texture_descriptors[i],
-					.dstBinding = 0,
-					.dstArrayElement = 0,
-					.descriptorCount = 1,
-					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-					.pImageInfo = &infos[i],
-				};
-			}
-
-			vkUpdateDescriptorSets(
-				rtg.device,
-				uint32_t(writes.size()),
-				writes.data(),
-				0, //descriptor copy count
-				nullptr
-			);
-
-		}		
 	}
 
 }
@@ -906,6 +989,12 @@ Tutorial::~Tutorial() {
 			workspace.Env = VK_NULL_HANDLE;
 		}
 		rtg.helpers.destroy_image(std::move(workspace.Env_src));
+
+		if(workspace.Env_Lambertian != VK_NULL_HANDLE) {
+			vkDestroyImageView(rtg.device, workspace.Env_Lambertian, nullptr);
+			workspace.Env_Lambertian = VK_NULL_HANDLE;
+		}
+		rtg.helpers.destroy_image(std::move(workspace.Env_Lambertian_src));
 	}
 	workspaces.clear();
 
@@ -1337,7 +1426,7 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		}
 
 		{//draw with the objecs pipeline:
-			if(!object_instances.empty()) {
+			if (!object_instances.empty()) {
 				vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objects_pipeline.handle);
 				{ // vertexbuffer
 					std::array<VkBuffer, 1> vertex_buffers {object_vertices.handle};
@@ -1361,16 +1450,94 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					);
 				}
 
+				// Ensure texture descriptors exist and are up to date for visible instances
+				uint32_t set_count = static_cast<uint32_t>(object_instances.size());
+				bool need_recreate = texture_descriptor_pool == VK_NULL_HANDLE || texture_descriptors.size() < set_count;
+				if (need_recreate) {
+					if (texture_descriptor_pool != VK_NULL_HANDLE) {
+						vkDestroyDescriptorPool(rtg.device, texture_descriptor_pool, nullptr);
+						texture_descriptor_pool = VK_NULL_HANDLE;
+					}
+
+					VkDescriptorPoolSize pool_size{
+						.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+						.descriptorCount = set_count * 5u,
+					};
+					VkDescriptorPoolCreateInfo pool_info{
+						.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+						.pNext = nullptr,
+						.flags = 0,
+						.maxSets = set_count,
+						.poolSizeCount = 1,
+						.pPoolSizes = &pool_size,
+					};
+					VK(vkCreateDescriptorPool(rtg.device, &pool_info, nullptr, &texture_descriptor_pool));
+
+					std::vector<VkDescriptorSetLayout> layouts(set_count, objects_pipeline.set2_TEXTURE);
+					VkDescriptorSetAllocateInfo alloc_info{
+						.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+						.pNext = nullptr,
+						.descriptorPool = texture_descriptor_pool,
+						.descriptorSetCount = set_count,
+						.pSetLayouts = layouts.data(),
+					};
+					texture_descriptors.resize(set_count, VK_NULL_HANDLE);
+					VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, texture_descriptors.data()));
+				} else {
+					texture_descriptors.resize(set_count);
+				}
+
+				for (size_t i = 0; i < object_instances.size(); ++i) {
+					ObjectInstance &inst = object_instances[i];
+					VkDescriptorSet descriptor_set = texture_descriptors[i];
+					inst.texture_set = descriptor_set;
+
+					std::array<VkWriteDescriptorSet, 5> writes{};
+					std::array<VkDescriptorImageInfo, 5> infos{};
+					uint32_t write_count = 0;
+
+					auto add_write = [&](uint32_t binding, uint32_t tex_index) {
+						if (tex_index == std::numeric_limits<uint32_t>::max()) return;
+						if (tex_index >= texture_views.size()) return;
+						infos[binding] = VkDescriptorImageInfo{
+							.sampler = texture_sampler,
+							.imageView = texture_views[tex_index],
+							.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+						};
+						writes[write_count++] = VkWriteDescriptorSet{
+							.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+							.dstSet = descriptor_set,
+							.dstBinding = binding,
+							.dstArrayElement = 0,
+							.descriptorCount = 1,
+							.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+							.pImageInfo = &infos[binding],
+						};
+					};
+
+					add_write(0, inst.albedo_tex);
+					add_write(1, inst.normal_tex);
+					add_write(2, inst.displacement_tex);
+					add_write(3, inst.roughness_tex);
+					add_write(4, inst.metalness_tex);
+
+					if (write_count > 0) {
+						vkUpdateDescriptorSets(rtg.device, write_count, writes.data(), 0, nullptr);
+					}
+				}
+
 				for (ObjectInstance const &inst : object_instances) {
 					uint32_t index = uint32_t(&inst - &object_instances[0]);
-					vkCmdBindDescriptorSets(
-						workspace.command_buffer,
-						VK_PIPELINE_BIND_POINT_GRAPHICS,
-						objects_pipeline.layout,
-						3, //second set
-						1, &texture_descriptors[inst.texture],
-						0, nullptr //dynamic offsets count, ptr
-					);
+					if (inst.texture_set != VK_NULL_HANDLE) {
+						vkCmdBindDescriptorSets(
+							workspace.command_buffer,
+							VK_PIPELINE_BIND_POINT_GRAPHICS,
+							objects_pipeline.layout,
+							3, // texture set
+							1, &inst.texture_set,
+							0, nullptr //dynamic offsets count, ptr
+						);
+					}
 					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index); // vertex count, instance count, first vertex, first instance.
 				}
 			}
@@ -1591,6 +1758,13 @@ void Tutorial::update(float dt) {
 				viewport_rect.x      = 0;
 				viewport_rect.y      = int32_t((rtg.swapchain_extent.height - viewport_rect.height) / 2);
 			}
+
+			glm::vec4 v = cur_scene_camera->transform * vec4(0.f, 0.f, 0.f, 1.0f); 
+			glm::vec3 camera_pos_ws = glm::vec3(v);
+			world.EYE.x = camera_pos_ws.x;
+			world.EYE.y = camera_pos_ws.y;
+			world.EYE.z = camera_pos_ws.z;
+
 		} else {
 			throw std::runtime_error("Failed to get Scene Camera Params");
 		}
@@ -1606,6 +1780,12 @@ void Tutorial::update(float dt) {
 			free_camera.target_x, free_camera.target_y, free_camera.target_z,
 			free_camera.azimuth, free_camera.elevation, free_camera.radius
 		);
+
+		glm::vec4 v = glm::inverse(free_camera.view) * vec4(0.f, 0.f, 0.f, 1.0f); 
+        glm::vec3 camera_pos_ws = glm::vec3(v);
+		world.EYE.x = camera_pos_ws.x;
+		world.EYE.y = camera_pos_ws.y;
+		world.EYE.z = camera_pos_ws.z;
 
 		CLIP_FROM_WORLD = free_camera.proj * free_camera.view;
 	} else if (camera_mode == CameraMode::Debug) {
@@ -2091,6 +2271,18 @@ void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 lo
 		auto it = object_vertices_list.find(node->mesh->name);
 		if (it == object_vertices_list.end()) throw std::runtime_error("Failed to find the mesh in object vertices list");
 		uint32_t matId = 0;
+		auto tex_lookup = [&](S72::Texture* tex) -> uint32_t {
+			if (!tex) return std::numeric_limits<uint32_t>::max();
+			auto tex_it = texture_ptr_to_index.find(tex);
+			return (tex_it != texture_ptr_to_index.end()) ? tex_it->second : std::numeric_limits<uint32_t>::max();
+		};
+
+		uint32_t texAlbedo = std::numeric_limits<uint32_t>::max();
+		uint32_t texNormal = std::numeric_limits<uint32_t>::max();
+		uint32_t texDisplacement = std::numeric_limits<uint32_t>::max();
+		uint32_t texRoughness = std::numeric_limits<uint32_t>::max();
+		uint32_t texMetalness = std::numeric_limits<uint32_t>::max();
+
 		if(node->mesh->material != nullptr){
 			auto mat_it = material_ptr_to_index.find(node->mesh->material);
 			if (mat_it != material_ptr_to_index.end()) {
@@ -2098,15 +2290,40 @@ void Tutorial::traverse_children(S72 &_s72, S72::Node* node, size_t &id, mat4 lo
 			} else {
 				throw std::runtime_error("Failed to find the material in material list");
     		}
+
+			//todo given material handle different brdf and find texture id:
+			if (auto* p = std::get_if<S72::Material::PBR>(&node->mesh->material->brdf)) {
+				if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&p->albedo)){
+					texAlbedo = tex_lookup(*ptr_albedoTex);
+				}
+				if (auto* ptr_roughTex = std::get_if<S72::Texture*>(&p->roughness)) {
+					texRoughness = tex_lookup(*ptr_roughTex);
+				}
+				if (auto* ptr_metalTex = std::get_if<S72::Texture*>(&p->metalness)) {
+					texMetalness = tex_lookup(*ptr_metalTex);
+				}
+			} else if (auto* l = std::get_if<S72::Material::Lambertian>(&node->mesh->material->brdf)) {
+				if (auto* ptr_albedoTex =  std::get_if<S72::Texture*>(&l->albedo)){
+					texAlbedo = tex_lookup(*ptr_albedoTex);
+				}
+			}
+
+			texNormal = tex_lookup(node->mesh->material->normal_map);
+			texDisplacement = tex_lookup(node->mesh->material->displacement_map);
 		}
 		ObjectInstance obj = ObjectInstance{
 			.vertices = it->second,
 			.transform = makeInstanceData(local_trans, matId),
+			.albedo_tex = texAlbedo,
+			.normal_tex = texNormal,
+			.displacement_tex = texDisplacement,
+			.roughness_tex = texRoughness,
+			.metalness_tex = texMetalness,
+			// std::string material = "",
 		};
 		objects.emplace_back(obj);
 		id++;
 		
-
 		//draw bouding box
 		if (camera_mode == CameraMode::Debug) {
 			auto corners = get_aabb_corners(it->second.min_aabb_bound, it->second.max_aabb_bound);

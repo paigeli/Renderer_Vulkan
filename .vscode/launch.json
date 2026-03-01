@@ -8,10 +8,32 @@
       "program": "${workspaceFolder}\\code\\bin\\viewer.exe",
       "args": [
         "--scene",
-        "report\\examples\\env-cube.s72",
+        "report\\examples\\materials.s72",
         // "--camera",
         // "Arm-Camera",
-        "--print"
+        "--print",
+        "--lambertian",
+        "code\\ox_bridge_morning_lambertian.png",
+        "--exposure",
+        "1.0",
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+
+      // run the COMSPEC /k "vcvars64.bat" && node maekfile.js part first
+      //"preLaunchTask": "build-with-node"
+    },
+    {
+      "name": "Launch cube.exe",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\code\\bin\\cube.exe",
+      "args": [
+        "report\\examples\\ox_bridge_morning.4.png",
+        "--lambertian",
+        "env_lambertian_out.png",
+        // "Arm-Camera",
+        // "--print"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
